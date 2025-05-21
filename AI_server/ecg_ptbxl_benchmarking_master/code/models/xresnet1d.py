@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from code.models.basic_conv1d import create_head1d, Flatten
+from .basic_conv1d import create_head1d, Flatten
 
 from enum import Enum
 import re

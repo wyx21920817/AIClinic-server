@@ -12,10 +12,16 @@ import torch.nn.functional as F
 
 # -------------------- 配置 --------------------
 # 微调实验的输出根目录
-BASE_PATH_FT     = 'output/exp0_ft'
+
+HERE             = os.path.dirname(os.path.realpath(__file__))
+# 直接以本脚本所在文件夹（ecg_ptbxl_benchmarking_master）为根
+BASE_PATH_FT     = os.path.join(HERE, 'output', 'exp0_ft')
 DATA_DIR_FT      = os.path.join(BASE_PATH_FT, 'data')
 MODELS_DIR_FT    = os.path.join(BASE_PATH_FT, 'models')
-WEIGHTS_FILE_FT  = os.path.join(MODELS_DIR_FT, 'fastai_xresnet1d101_finetuned_manual.pth')
+WEIGHTS_FILE_FT  = os.path.join(
+    MODELS_DIR_FT,
+    'fastai_xresnet1d101_finetuned_manual.pth'
+)
 
 # 随机种子
 SEED = 42

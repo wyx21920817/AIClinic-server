@@ -51,6 +51,36 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
         raise
 
 
+def get_instance_dicom_binary(instance_id: str, token: str) -> bytes:
+    """
+    拉取 DICOM 并返回其原始二进制内容 (bytes), 使用 token 进行认证.
+    Args:
+        instance_id: Orthanc instance ID.
+        token: The temporary access token.
+    Returns:
+        bytes: The raw binary content of the DICOM file.
+    Raises:
+        requests.exceptions.RequestException: If the HTTP request fails.
+    """
+    logging.debug(f"Attempting to retrieve DICOM binary for instance: {instance_id} from {ORTHANC_URL} using token.")
+    url = f"{ORTHANC_URL}/instances/{instance_id}/file"
+
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        logging.debug(f"Successfully retrieved DICOM binary for instance: {instance_id}")
+        return r.content # 直接返回二进制内容
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to retrieve DICOM binary for instance {instance_id}: {e}")
+        if hasattr(r, 'text'):
+            logging.error(f"Orthanc response text: {r.text}")
+        raise
+
+
 # --- MODIFIED store_instance_dicom function using the modify+upload strategy ---
 # This implements the two-step process: modify via /modify, then upload resulting binary via /instances.
 def store_instance_dicom(instance_id: str, comment: str, token: str) -> str | None:

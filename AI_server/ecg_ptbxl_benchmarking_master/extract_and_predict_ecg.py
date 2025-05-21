@@ -8,7 +8,7 @@ import numpy as np
 import pickle
 import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
-from classify_single_ecg_ft import load_model, preprocess_signal, set_seed
+from .classify_single_ecg_ft import load_model, preprocess_signal, set_seed
 
 # 1. 配置微调模型路径
 BASE_PATH_FT    = 'output/exp0_ft'

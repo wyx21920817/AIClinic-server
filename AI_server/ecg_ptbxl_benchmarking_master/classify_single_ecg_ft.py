@@ -6,7 +6,7 @@ import torch
 import numpy as np
 import random
 from sklearn.preprocessing import StandardScaler, MultiLabelBinarizer
-from code.models.xresnet1d import xresnet1d101
+from .code.models.xresnet1d import xresnet1d101
 import pickle
 import torch.nn.functional as F
 

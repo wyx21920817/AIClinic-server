@@ -26,10 +26,36 @@ import logging
 # set log record
 logging.basicConfig(level=logging.DEBUG)
 
+# 认证服务URL - 新增
+AUTH_SERVICE_URL = "http://52.63.231.27:8000/api/auth/temp-token"
 
 class PredictRequest(BaseModel):
     token: str
 
+async def get_temp_token() -> str | None:
+    """
+    自动获取临时认证token
+    """
+    logging.debug(f"Attempting to obtain temporary token from {AUTH_SERVICE_URL}")
+    try:
+        response = await run_in_threadpool(requests.get, AUTH_SERVICE_URL)
+        response.raise_for_status()
+        token_data = response.json()
+        temp_token = token_data.get("token")
+        
+        if temp_token:
+            logging.debug(f"Successfully obtained temporary token (expires in: {token_data.get('expires_in')} seconds).")
+            return temp_token
+        else:
+            logging.error(f"Token response did not contain 'token' field. Response: {token_data}")
+            return None
+            
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to obtain temporary token: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during token acquisition: {e}")
+        return None
 
 @app.post("/predict/{instance_id}")
 async def predict(instance_id: str, request: PredictRequest):
@@ -131,3 +157,39 @@ async def predict(instance_id: str, request: PredictRequest):
                 logging.debug(f"Temporary DICOM file {temp_dicom_file_path} deleted.")
             except Exception as e:
                 logging.error(f"Failed to delete temporary file {temp_dicom_file_path}: {e}")
+
+@app.post("/diagnose/{instance_id}")
+async def diagnose_ecg(instance_id: str):
+    """
+    供外部调用的ECG诊断API
+    只需要传入instance_id，自动获取token并返回诊断结果
+    """
+    logging.info(f"收到诊断请求，Instance ID: {instance_id}")
+    
+    try:
+        # 自动获取token（用户不需要关心认证细节）
+        token = await get_temp_token()
+        if not token:
+            raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
+        
+        logging.debug(f"Successfully obtained token for instance {instance_id}")
+        
+        # 调用现有的predict逻辑
+        request = PredictRequest(token=token)
+        result = await predict(instance_id, request)
+        
+        # 返回简化的响应格式
+        return {
+            "instance_id": instance_id,
+            "status": "success",
+            "predictions": result["predictions"],
+            "modified_instance_id": result["modified_instance_id"],
+            "message": f"Successfully diagnosed ECG instance: {instance_id}"
+        }
+        
+    except HTTPException:
+        # 重新抛出HTTP异常
+        raise
+    except Exception as e:
+        logging.error(f"诊断失败，Instance ID: {instance_id}, 错误: {e}")
+        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(e)}")

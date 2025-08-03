@@ -16,6 +16,7 @@ def load_models():
     """
     global _model_dnn
     _model_dnn = load_model(DNN_MODEL_PATH)
+    print("Model expects:", _model_dnn.input_shape)
 
 def predict_dnn(ecg_array: np.ndarray) -> dict:
     """
@@ -26,6 +27,7 @@ def predict_dnn(ecg_array: np.ndarray) -> dict:
         dict: {'RBBB': prob, 'LBBB': prob}
     """
     x = np.expand_dims(ecg_array, axis=0)  # shape: (1, 12, N)
+    print("Feeding tensor shape:", x.shape)
     preds = _model_dnn.predict(x)
     return {
         '1dAVb': float(preds[0][0]),

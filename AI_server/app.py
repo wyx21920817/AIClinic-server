@@ -161,24 +161,24 @@ async def predict(instance_id: str, request: PredictRequest):
 @app.post("/diagnose/{instance_id}")
 async def diagnose_ecg(instance_id: str):
     """
-    供外部调用的ECG诊断API
-    只需要传入instance_id，自动获取token并返回诊断结果
+    ECG diagnostic API for external use
+    Simply enter the instance_id to automatically obtain a token and return the diagnostic results.
     """
-    logging.info(f"收到诊断请求，Instance ID: {instance_id}")
+    logging.info(f"Receive a diagnostic request,Instance ID: {instance_id}")
     
     try:
-        # 自动获取token（用户不需要关心认证细节）
+        # Automatically obtain tokens (users do not need to worry about authentication details)
         token = await get_temp_token()
         if not token:
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
         
         logging.debug(f"Successfully obtained token for instance {instance_id}")
         
-        # 调用现有的predict逻辑
+        # Call the existing predict logic
         request = PredictRequest(token=token)
         result = await predict(instance_id, request)
         
-        # 返回简化的响应格式
+        # Returns a simplified response format
         return {
             "instance_id": instance_id,
             "status": "success",
@@ -188,8 +188,8 @@ async def diagnose_ecg(instance_id: str):
         }
         
     except HTTPException:
-        # 重新抛出HTTP异常
+        # Rethrowing HTTP exceptions
         raise
     except Exception as e:
-        logging.error(f"诊断失败，Instance ID: {instance_id}, 错误: {e}")
+        logging.error(f"Diagnostic failure,Instance ID: {instance_id}, error: {e}")
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(e)}")

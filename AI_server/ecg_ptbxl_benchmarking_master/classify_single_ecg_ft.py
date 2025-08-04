@@ -6,16 +6,22 @@ import torch
 import numpy as np
 import random
 from sklearn.preprocessing import StandardScaler, MultiLabelBinarizer
-from code.models.xresnet1d import xresnet1d101
+from .code.models.xresnet1d import xresnet1d101
 import pickle
 import torch.nn.functional as F
 
 # -------------------- 配置 --------------------
 # 微调实验的输出根目录
-BASE_PATH_FT     = 'output/exp0_ft'
+
+HERE             = os.path.dirname(os.path.realpath(__file__))
+# 直接以本脚本所在文件夹（ecg_ptbxl_benchmarking_master）为根
+BASE_PATH_FT     = os.path.join(HERE, 'output', 'exp0_ft')
 DATA_DIR_FT      = os.path.join(BASE_PATH_FT, 'data')
 MODELS_DIR_FT    = os.path.join(BASE_PATH_FT, 'models')
-WEIGHTS_FILE_FT  = os.path.join(MODELS_DIR_FT, 'fastai_xresnet1d101_finetuned_manual.pth')
+WEIGHTS_FILE_FT  = os.path.join(
+    MODELS_DIR_FT,
+    'fastai_xresnet1d101_finetuned_manual.pth'
+)
 
 # 随机种子
 SEED = 42
@@ -54,9 +60,9 @@ def load_model(weights_path, n_in, n_out, device='cpu'):
     # 4. 严格加载权重
     try:
         model.load_state_dict(state, strict=True)
-        print("✅ finetuned model weights loaded successfully")
+        print("✅ finetuned 模型权重加载成功")
     except Exception as e:
-        print("❌ Error loading weights:", e)
+        print("❌ 加载权重出错:", e)
         return None
 
     model.eval()

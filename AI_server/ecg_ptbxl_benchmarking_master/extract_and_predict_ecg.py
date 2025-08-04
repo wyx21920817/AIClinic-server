@@ -8,11 +8,16 @@ import numpy as np
 import pickle
 import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
-from classify_single_ecg_ft import load_model, preprocess_signal, set_seed
+from .classify_single_ecg_ft import load_model, preprocess_signal, set_seed
 
 # 1. 配置微调模型路径
-BASE_PATH_FT    = 'output/exp0_ft'
-WEIGHTS_FILE_FT = os.path.join(BASE_PATH_FT, 'models', 'fastai_xresnet1d101_finetuned_manual.pth')
+HERE            = os.path.dirname(os.path.realpath(__file__))
+BASE_PATH_FT    = os.path.join(HERE, 'output', 'exp0_ft')
+MODELS_DIR_FT   = os.path.join(BASE_PATH_FT, 'models')
+WEIGHTS_FILE_FT = os.path.join(
+    MODELS_DIR_FT,
+    'fastai_xresnet1d101_finetuned_manual.pth'
+)
 DATA_DIR_FT     = os.path.join(BASE_PATH_FT, 'data')  # standard_scaler.pkl & mlb.pkl
 
 def extract_ecg_from_dicom(dicom_file):
@@ -64,9 +69,9 @@ def process_and_predict(dicom_file):
     ecg = extract_ecg_from_dicom(dicom_file)         # shape (samples, channels)
     
     # -- 3. 预处理：转成 (channels, samples)，再 normalize
-    sig = ecg.astype(np.float32).T                   # (12, N)
+    sig = ecg.astype(np.float32).T   
     # 归一化DICOM数据到[-1, 1]范围
-    sig = sig / 1000.0
+    sig = sig / 1000.0                # (12, N)
     sig, scaler = preprocess_signal(sig, scaler)     # reuse classify_single_ecg_ft 里的逻辑
     x   = torch.from_numpy(sig).unsqueeze(0)         # (1,12,N)
 

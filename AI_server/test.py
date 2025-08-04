@@ -2,16 +2,19 @@ import requests
 import json # Added for handling JSON response
 
 # Orthanc 服务器的 URL 和认证信息 (不再直接使用)
-# ORTHANC_URL = "http://54.79.224.136:8042"
+# ORTHANC_URL = "http://52.63.231.27:8042"
 # ORTHANC_AUTH = ("orthanc", "orthanc")
 
 # FastAPI AI Server 的 URL
 API_URL = "http://localhost:8000/predict/"
 
 # 认证服务的 URL，用于获取临时 token
+
 # 根据截图，认证服务可能运行在 54.79.224.136:8000
 # AUTH_SERVICE_URL = "http://54.79.224.136:8000/api/auth/temp-token"
 AUTH_SERVICE_URL = "http://52.63.231.27:8001/api/auth/temp-token"
+
+
 
 # 要测试的 instance_id
 instance_id = "6ceda576-0f1c6f1c-df730f7c-1528e82b-1f58d06b"

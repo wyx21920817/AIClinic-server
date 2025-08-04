@@ -1,0 +1,16 @@
+
+__pycache__
+**/*.pdf
+**/*.toc
+**/*.bbl
+**/*.blg
+**/*.out
+**/*.aux
+**/*.log
+**/*.gz
+**/*.pyc
+**/*.fls
+**/*.fdb_latexmk
+**/*.dat
+**/*.hea
+.ipynb_checkpoints

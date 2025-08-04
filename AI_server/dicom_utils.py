@@ -6,7 +6,7 @@ from io import BytesIO
 import json
 import logging
 
-ORTHANC_URL  = "http://54.79.224.136:8042"
+ORTHANC_URL  = "http://52.63.231.27:8042"
 # ORTHANC_AUTH = ("orthanc", "orthanc") # REMOVED
 
 logging.basicConfig(level=logging.DEBUG)
@@ -38,7 +38,7 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
     headers = {
         "Authorization": f"Bearer {token}"
     }
-
+    r = None
     try:
         r = requests.get(url, headers=headers)
         r.raise_for_status()

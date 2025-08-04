@@ -3,14 +3,14 @@ import json
 import os # 用于可能的临时文件操作，虽然在这个片段中还未删除
 
 # --- 配置 Orthanc 服务器信息 ---
-ORTHANC_URL = "http://54.79.224.136:8042"
+ORTHANC_URL = "http://52.63.231.27:8042"
 
 # --- 认证服务的 URL，用于获取临时 token ---
-# 根据之前的分析，认证服务可能运行在 54.79.224.136:8000
-AUTH_SERVICE_URL = "http://54.79.224.136:8000/api/auth/temp-token"
+# 根据之前的分析，认证服务可能运行在 52.63.231.27:8000
+AUTH_SERVICE_URL = "http://52.63.231.27:8000/api/auth/temp-token"
 
 # --- 要测试的 instance_id ---
-instance_id = "11afdfd9-fa429bbd-995265c4-6d965eb0-4820f0dd"
+instance_id = "79f1c5f9-356696cd-4391a2cb-8d3713c1-a756d2f3"
 
 # --- 获取临时 token 的函数 (从 test.py 复制过来) ---
 def get_temp_token() -> str | None:

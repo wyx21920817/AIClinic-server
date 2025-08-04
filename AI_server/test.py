@@ -10,11 +10,11 @@ API_URL = "http://localhost:8000/predict/"
 
 # 认证服务的 URL，用于获取临时 token
 # 根据截图，认证服务可能运行在 54.79.224.136:8000
-AUTH_SERVICE_URL = "http://54.79.224.136:8000/api/auth/temp-token"
-
+# AUTH_SERVICE_URL = "http://54.79.224.136:8000/api/auth/temp-token"
+AUTH_SERVICE_URL = "http://52.63.231.27:8001/api/auth/temp-token"
 
 # 要测试的 instance_id
-instance_id = "11afdfd9-fa429bbd-995265c4-6d965eb0-4820f0dd"
+instance_id = "6ceda576-0f1c6f1c-df730f7c-1528e82b-1f58d06b"
 
 
 # --- ADDED: Function to get temporary token ---

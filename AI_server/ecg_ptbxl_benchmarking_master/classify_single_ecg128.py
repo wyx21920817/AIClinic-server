@@ -32,10 +32,10 @@ def load_model(weights_path, n_in, n_out, device='cpu'):
     for k, v in state.items():
         if v.ndim == 2 and v.shape[0] == n_out:
             hidden_size = v.shape[1]
-            print(f"🔍 推断分类头中间维度 hidden_size = {hidden_size}（来自 checkpoint key `{k}`）")
+            print(f"🔍 Infer the intermediate dimension of the classification head hidden_size = {hidden_size}（from checkpoint key `{k}`）")
             break
     if hidden_size is None:
-        print(f"❌ 无法从 checkpoint 推断出分类头中间维度 (n_out={n_out})")
+        print(f"❌ Unable to infer hidden_size from checkpoint (n_out={n_out})")
         return None
 
     # 3. 构造完全一致的模型：512 -> hidden_size -> n_out
@@ -48,9 +48,9 @@ def load_model(weights_path, n_in, n_out, device='cpu'):
     # 4. 严格加载所有权重（包括分类头）
     try:
         model.load_state_dict(state, strict=True)
-        print("✅ 模型权重加载成功（包含完整 head）")
+        print("✅ finetuned model weights loaded successfully")
     except Exception as e:
-        print(f"❌ 加载模型时发生错误: {e}")
+        print(f"❌ Error loading weights: {e}")
         return None
 
     model.eval()

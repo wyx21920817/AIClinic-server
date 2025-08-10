@@ -60,9 +60,9 @@ def load_model(weights_path, n_in, n_out, device='cpu'):
     # 4. 严格加载权重
     try:
         model.load_state_dict(state, strict=True)
-        print("✅ finetuned 模型权重加载成功")
+        print("✅ finetuned model weights loaded successfully")
     except Exception as e:
-        print("❌ 加载权重出错:", e)
+        print("❌ Error loading weights:", e)
         return None
 
     model.eval()

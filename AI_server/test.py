@@ -13,7 +13,7 @@ API_URL = "http://localhost:8000/predict/"
 # 根据截图，认证服务可能运行在 54.79.224.136:8000
 # AUTH_SERVICE_URL = "http://54.79.224.136:8000/api/auth/temp-token"
 AUTH_SERVICE_URL = "http://52.63.231.27:8001/api/auth/temp-token"
-
+# AUTH_SERVICE_URL = "http://54.79.181.49:8001/api/auth/temp-token"
 
 
 # 要测试的 instance_id

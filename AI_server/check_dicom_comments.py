@@ -7,10 +7,10 @@ from pydicom import dcmread, Dataset
 from io import BytesIO
 
 # Orthanc 服务器的 URL
-ORTHANC_URL = "http://52.63.231.27:8042"
+ORTHANC_URL = "http://54.79.181.49:8042"
 
 # 认证服务的 URL，用于获取临时 token
-AUTH_SERVICE_URL = "http://52.63.231.27:8000/api/auth/temp-token"
+AUTH_SERVICE_URL = "http://54.79.181.49:8000/api/auth/temp-token"
 
 # 要检查的 DICOM 实例 ID (使用 test.py 中成功处理的那个 ID)
 INSTANCE_ID_TO_CHECK = "79f1c5f9-356696cd-4391a2cb-8d3713c1-a756d2f3"

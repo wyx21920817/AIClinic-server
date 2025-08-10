@@ -4,7 +4,7 @@ import numpy as np
 from dicom_utils import get_instance_dicom
 
 def get_temp_token():
-    AUTH_SERVICE_URL = "http://52.63.231.27:8000/api/auth/temp-token"
+    AUTH_SERVICE_URL = "http://54.79.181.49:8000/api/auth/temp-token"
     try:
         response = requests.get(AUTH_SERVICE_URL)
         response.raise_for_status()

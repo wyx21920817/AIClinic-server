@@ -6,7 +6,7 @@ from io import BytesIO
 import json
 import logging
 
-ORTHANC_URL  = "http://52.63.231.27:8042"
+ORTHANC_URL  = "http://54.79.181.49:8042"
 # ORTHANC_AUTH = ("orthanc", "orthanc") # REMOVED
 
 logging.basicConfig(level=logging.DEBUG)

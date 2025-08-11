@@ -11,7 +11,7 @@ from pydicom.dataset import Dataset, FileDataset
 from pydicom.sequence import Sequence
 
 def wfdb_to_dicom_correct_official(record_name: str, wfdb_dir: str, out_path: str):
-    # --- 1. 读取 WFDB ---
+    # --- 1. Read WFDB ---
     rec_path = os.path.join(wfdb_dir, record_name)
     rec = wfdb.rdrecord(rec_path)
     sig = rec.p_signal.astype("float32")
@@ -19,20 +19,20 @@ def wfdb_to_dicom_correct_official(record_name: str, wfdb_dir: str, out_path: st
     leads = rec.sig_name
     n_samp, n_chan = sig.shape
 
-    print(f"📊 原始数据信息:")
-    print(f"   形状: {sig.shape}")
-    print(f"   采样率: {fs} Hz")
-    print(f"   导联: {leads}")
-    print(f"   数据范围: [{sig.min():.3f}, {sig.max():.3f}] mV")
+    print(f"📊 Original Data Info:")
+    print(f"   Shape: {sig.shape}")
+    print(f"   Sampling Rate: {fs} Hz")
+    print(f"   Leads: {leads}")
+    print(f"   Data Range: [{sig.min():.3f}, {sig.max():.3f}] mV")
 
-    # --- 2. 数据转换 ---
+    # --- 2. Data Conversion ---
     sig_uv = sig * 1000.0  # mV -> µV
     sig_uv = np.clip(sig_uv, -32767, 32767)
     sig_int16 = np.round(sig_uv).astype(np.int16)
     
-    print(f"   转换后范围: [{sig_int16.min()}, {sig_int16.max()}] (int16)")
+    print(f"   Converted Range: [{sig_int16.min()}, {sig_int16.max()}] (int16)")
 
-    # --- 3. DICOM文件元信息 ---
+    # --- 3. DICOM File Meta Information ---
     sop_instance_uid = pydicom.uid.generate_uid()
     
     file_meta = Dataset()
@@ -42,16 +42,16 @@ def wfdb_to_dicom_correct_official(record_name: str, wfdb_dir: str, out_path: st
     file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
     file_meta.ImplementationClassUID = "1.2.826.0.1.3680043.10.1000"
 
-    # --- 4. 主数据集 ---
+    # --- 4. Main Dataset ---
     ds = FileDataset(out_path, {}, file_meta=file_meta, preamble=b"\0" * 128)
     ds.is_little_endian = True
     ds.is_implicit_VR = False
 
-    # SOP标签
+    # SOP Tags
     ds.SOPClassUID = "1.2.840.10008.5.1.4.1.1.9.1.1"
     ds.SOPInstanceUID = sop_instance_uid
     
-    # Patient/Study信息
+    # Patient/Study Info
     ds.PatientName = "Anon^PTBXL"
     ds.PatientID = "PTBXL"
     ds.PatientBirthDate = ""
@@ -71,33 +71,33 @@ def wfdb_to_dicom_correct_official(record_name: str, wfdb_dir: str, out_path: st
     ds.Modality = "ECG"
     ds.Manufacturer = "PTBXL-Converter"
 
-    # --- 5. 波形序列 - 按照官方文档 ---
+    # --- 5. Waveform Sequence - Based on official documentation ---
     wv_item = Dataset()
     
-    # 基本波形信息
+    # Basic Waveform Info
     wv_item.WaveformOriginality = "ORIGINAL"
     wv_item.NumberOfWaveformChannels = n_chan
     wv_item.NumberOfWaveformSamples = n_samp
     wv_item.SamplingFrequency = float(fs)
     
-    # 时间相关参数
+    # Time related parameters
     wv_item.MultiplexGroupTimeOffset = 0.0
     wv_item.TriggerTimeOffset = 0.0
     
-    # ✅ 关键：完整的波形位定义
+    # Complete Waveform bit definitions
     wv_item.WaveformBitsAllocated = 16
     wv_item.WaveformSampleInterpretation = "SS"
     
-    # ✅ 关键：交错数据并转换为bytes
-    # 将数据重塑为 (n_samp, n_chan) 然后转为bytes
+    # Interleave data and convert to bytes
+    # Reshape data to (n_samp, n_chan) then convert to bytes
     arr = sig_int16.reshape(n_samp, n_chan)
     wf_bytes = arr.tobytes()
     wv_item.WaveformData = wf_bytes
 
-    # --- 6. 通道定义序列 - 按照官方文档格式 ---
+    # --- 6. Channel Definition Sequence - Based on official documentation format ---
     ch_seq = []
     
-    # 标准导联代码映射
+    # Standard lead code mapping
     lead_codes = {
         'I': ('5.6.3-9-1', 'Lead I (Einthoven)'),
         'II': ('5.6.3-9-2', 'Lead II'),
@@ -116,11 +116,11 @@ def wfdb_to_dicom_correct_official(record_name: str, wfdb_dir: str, out_path: st
     for ch_idx, lead in enumerate(leads):
         chdef = Dataset()
         
-        # ✅ 关键：按照官方文档，在通道定义中设置WaveformBitsStored
+        # According to official documentation, set WaveformBitsStored in channel definition
         chdef.ChannelSampleSkew = 0.0
-        chdef.WaveformBitsStored = 16  # ✅ 这是关键！
+        chdef.WaveformBitsStored = 16
         
-        # 导联代码序列
+        # Lead code sequence
         chdef.ChannelSourceSequence = [Dataset()]
         source = chdef.ChannelSourceSequence[0]
         
@@ -136,7 +136,7 @@ def wfdb_to_dicom_correct_official(record_name: str, wfdb_dir: str, out_path: st
             source.CodingSchemeVersion = "1.0"
             source.CodeMeaning = lead
         
-        # 校准信息 (Type 1C - 可选的)
+        # Calibration info (Type 1C - Optional)
         chdef.ChannelSensitivity = 1.0
         chdef.ChannelSensitivityUnitsSequence = [Dataset()]
         units_item = chdef.ChannelSensitivityUnitsSequence[0]
@@ -149,42 +149,42 @@ def wfdb_to_dicom_correct_official(record_name: str, wfdb_dir: str, out_path: st
     wv_item.ChannelDefinitionSequence = Sequence(ch_seq)
     ds.WaveformSequence = Sequence([wv_item])
 
-    # --- 7. 保存并验证 ---
+    # --- 7. Save and Verify ---
     try:
         ds.save_as(out_path, write_like_original=False)
         
-        # 验证文件
+        # Verify file
         verify_ds = pydicom.dcmread(out_path)
         ws = verify_ds.WaveformSequence[0]
         
-        print(f"✅ DICOM ECG保存成功: {out_path}")
-        print(f"   ✅ WaveformBitsAllocated: {ws.WaveformBitsAllocated}")
-        print(f"   ✅ WaveformSampleInterpretation: {ws.WaveformSampleInterpretation}")
+        print(f"DICOM ECG saved successfully: {out_path}")
+        print(f"   WaveformBitsAllocated: {ws.WaveformBitsAllocated}")
+        print(f"   WaveformSampleInterpretation: {ws.WaveformSampleInterpretation}")
         
-        # 检查通道定义中的WaveformBitsStored
+        # Check WaveformBitsStored in channel definition
         ch = ws.ChannelDefinitionSequence[0]
-        print(f"   ✅ 通道WaveformBitsStored: {ch.WaveformBitsStored}")
+        print(f"   Channel WaveformBitsStored: {ch.WaveformBitsStored}")
         
-        # 验证数据
+        # Verify data
         expected_size = n_samp * n_chan * 2
         actual_size = len(ws.WaveformData)
-        print(f"   ✅ 数据大小: {actual_size} bytes (期望: {expected_size})")
+        print(f"   Data size: {actual_size} bytes (Expected: {expected_size})")
         
         if actual_size == expected_size:
-            print("   ✅ 数据完整性验证通过")
+            print("   Data integrity verification passed")
         
-        # 使用pydicom的官方方法验证数据解码
+        # Use pydicom's official method to verify data decoding
         try:
             decoded_arr = verify_ds.waveform_array(0)
-            print(f"   ✅ 数据解码成功: {decoded_arr.shape}")
-            print(f"   ✅ 解码后范围: [{decoded_arr.min():.1f}, {decoded_arr.max():.1f}]")
+            print(f"   Data decoding successful: {decoded_arr.shape}")
+            print(f"   Decoded range: [{decoded_arr.min():.1f}, {decoded_arr.max():.1f}]")
         except Exception as decode_error:
-            print(f"   ❌ 数据解码失败: {decode_error}")
+            print(f"   Data decoding failed: {decode_error}")
         
         return True
         
     except Exception as e:
-        print(f"❌ 保存失败: {e}")
+        print(f"Save failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -196,19 +196,19 @@ if __name__ == "__main__":
     
     rec_base, wfdb_dir, out_file = sys.argv[1:]
     
-    print(f"🔄 官方文档标准版本")
-    print(f"   转换: {rec_base} -> {out_file}")
+    print(f"Official Documentation Standard Version")
+    print(f"   Converting: {rec_base} -> {out_file}")
     
     success = wfdb_to_dicom_correct_official(rec_base, wfdb_dir, out_file)
     
     if success:
-        print(f"\n🎉 按pydicom官方文档转换成功！")
-        print(f"💡 关键修复:")
-        print(f"   • 在ChannelDefinitionSequence中设置WaveformBitsStored=16")
-        print(f"   • 使用正确的数据交错格式")
-        print(f"   • 遵循官方文档的完整结构")
-        print(f"\n📋 测试:")
-        print(f"   1. 验证ECG查看器是否还报'bits stored definition'错误")
-        print(f"   2. 检查波形是否能正常显示")
+        print(f"\n Converted successfully according to pydicom official documentation!")
+        print(f"   Key Fixes:")
+        print(f"   • Set WaveformBitsStored=16 in ChannelDefinitionSequence")
+        print(f"   • Used correct data interleaving format")
+        print(f"   • Followed the complete structure from official documentation")
+        print(f"\n Test:")
+        print(f"   1. Verify if ECG viewer still reports 'bits stored definition' error")
+        print(f"   2. Check if waveform displays correctly")
     else:
-        print(f"\n❌ 转换失败")
+        print(f"\n Conversion failed")

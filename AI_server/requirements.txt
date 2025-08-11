@@ -10,7 +10,7 @@ pydicom==3.0.1
 Requests==2.32.4
 scikit_learn==1.7.1
 scipy
-skimage==0.0
+scikit-image
 starlette==0.47.2
 tensorflow==2.19.0
 torch==2.6.0

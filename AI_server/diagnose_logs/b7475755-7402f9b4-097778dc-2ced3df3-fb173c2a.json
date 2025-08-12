@@ -1,0 +1,23 @@
+{
+  "instance_id": "b7475755-7402f9b4-097778dc-2ced3df3-fb173c2a",
+  "status": "success",
+  "predictions": {
+    "original_dnn_model": {
+      "1dAVb": 0.003330795792862773,
+      "RBBB": 0.001324567710980773,
+      "LBBB": 0.7720810174942017,
+      "SB": 0.00012168579996796325,
+      "AF": 0.011721577495336533,
+      "ST": 0.0076230717822909355
+    },
+    "resnet_fine_tuned_model": {
+      "CD": 0.9614564180374146,
+      "HYP": 0.015351549722254276,
+      "STTC": 0.013326209038496017,
+      "MI": 0.009762991219758987,
+      "NORM": 0.00010279469279339537
+    }
+  },
+  "modified_instance_id": "000edfff-3ef19f4d-7285ba90-12d6d393-755377af",
+  "message": "Successfully diagnosed ECG instance: b7475755-7402f9b4-097778dc-2ced3df3-fb173c2a"
+}

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 import requests
 import tempfile
 import os
+import json
 # 引入 run_in_threadpool 以在异步环境中执行同步操作
 from starlette.concurrency import run_in_threadpool
 # 确保从 dicom_utils 导入 ORTHANC_URL 和 get_headers，因为它们是获取二进制数据所必需的
@@ -163,32 +164,59 @@ async def diagnose_ecg(instance_id: str):
     """
     ECG diagnostic API for external use
     Simply enter the instance_id to automatically obtain a token and return the diagnostic results.
+    Also saves each diagnosis result to a local JSON file.
     """
     logging.info(f"Receive a diagnostic request,Instance ID: {instance_id}")
-    
+
     try:
-        # Automatically obtain tokens (users do not need to worry about authentication details)
+        # 1. 自动获取token
         token = await get_temp_token()
         if not token:
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
-        
+
         logging.debug(f"Successfully obtained token for instance {instance_id}")
-        
-        # Call the existing predict logic
+
+        # 2. 调用预测逻辑
         request = PredictRequest(token=token)
         result = await predict(instance_id, request)
-        
-        # Returns a simplified response format
-        return {
+
+        # 3. 构造返回内容
+        output = {
             "instance_id": instance_id,
             "status": "success",
             "predictions": result["predictions"],
             "modified_instance_id": result["modified_instance_id"],
             "message": f"Successfully diagnosed ECG instance: {instance_id}"
         }
+
+        # 4. 自动保存诊断结果为本地json
+        save_dir = "./diagnose_logs"   # 你可以自定义保存目录
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, f"{instance_id}.json")
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                json.dump(output, f, indent=2, ensure_ascii=False)
+            logging.info(f"Diagnosis result saved to {save_path}")
+        except Exception as e:
+            logging.error(f"Failed to save diagnosis result: {e}")
+
+        dicom_dir = "./dicoms"
+        dicom_url = f"http://54.79.181.49:8042/instances/{instance_id}/file"
+        dicom_save_path = os.path.join(dicom_dir, f"{instance_id}.dcm")
+        try:
+            headers = {"Authorization": f"Bearer {token}"}
+            r = requests.get(dicom_url, headers=headers)
+            r.raise_for_status()  # 如果请求失败会抛出异常
+            with open(dicom_save_path, "wb") as f:
+                f.write(r.content)
+            logging.info(f"原始 DICOM 文件保存到 {dicom_save_path}")
+        except Exception as e:
+            logging.error(f"保存 DICOM 文件失败: {e}")
         
+        # 5. 返回API响应
+        return output
+
     except HTTPException:
-        # Rethrowing HTTP exceptions
         raise
     except Exception as e:
         logging.error(f"Diagnostic failure,Instance ID: {instance_id}, error: {e}")

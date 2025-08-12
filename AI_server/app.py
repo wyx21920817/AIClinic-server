@@ -27,7 +27,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 # 认证服务URL - 新增
-AUTH_SERVICE_URL = "http://54.79.181.49:8000/api/auth/temp-token"
+AUTH_SERVICE_URL = "http://54.79.181.49:8001/api/auth/temp-token"
 
 class PredictRequest(BaseModel):
     token: str

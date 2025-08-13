@@ -9,6 +9,10 @@ import pickle
 import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
 
+# 修复导入路径问题 - 在文件开头设置
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
 # 修复相对导入问题
 try:
     from .classify_single_ecg_ft import load_model, preprocess_signal, set_seed
@@ -20,6 +24,113 @@ except ImportError:
         from classify_single_ecg128 import load_model as load_model_128, preprocess_signal as preprocess_signal_128, set_seed as set_seed_128
     except ImportError:
         print("Warning: Unable to import necessary modules, please ensure the files are in the correct directory")
+        # 创建默认的set_seed_128函数
+        def set_seed_128(seed=42):
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+            import random
+            random.seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+        
+        # 创建默认的load_model和preprocess_signal函数
+        def load_model_128(weights_path, n_in, n_out, device='cpu'):
+            print("Warning: Using default load_model_128 function")
+            # 尝试直接导入xresnet1d模型
+            try:
+                from code.models.xresnet1d import xresnet1d101
+                
+                # 1. 载入 checkpoint
+                ckpt = torch.load(weights_path, map_location=device)
+                state = ckpt.get('model', ckpt)
+
+                # 2. 从 state 推断分类头 hidden_size
+                hidden_size = None
+                for k,v in state.items():
+                    if v.ndim==2 and v.shape[0]==n_out:
+                        hidden_size = v.shape[1]
+                        print(f"🔍 hidden_size={hidden_size} (from `{k}`)")
+                        break
+                if hidden_size is None:
+                    print(f"❌ 无法推断 hidden_size (n_out={n_out})")
+                    return None
+
+                # 3. 重建模型
+                model = xresnet1d101(
+                    input_channels=n_in,
+                    num_classes=n_out,
+                    lin_ftrs_head=[hidden_size]
+                ).to(device)
+
+                # 4. 严格加载权重
+                try:
+                    model.load_state_dict(state, strict=True)
+                    print("✅ finetuned model weights loaded successfully")
+                except Exception as e:
+                    print("❌ Error loading weights:", e)
+                    return None
+
+                model.eval()
+                return model
+                
+            except ImportError as e:
+                print(f"❌ Cannot import xresnet1d101 model: {e}")
+                # 尝试其他导入方式
+                try:
+                    # 方法1：直接添加路径
+                    import sys
+                    import os
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    code_dir = os.path.join(current_dir, 'code')
+                    sys.path.insert(0, code_dir)
+                    
+                    from models.xresnet1d import xresnet1d101
+                    print("✅ Successfully imported xresnet1d101 using alternative path")
+                    
+                    # 继续加载模型...
+                    ckpt = torch.load(weights_path, map_location=device)
+                    state = ckpt.get('model', ckpt)
+
+                    hidden_size = None
+                    for k,v in state.items():
+                        if v.ndim==2 and v.shape[0]==n_out:
+                            hidden_size = v.shape[1]
+                            print(f"🔍 hidden_size={hidden_size} (from `{k}`)")
+                            break
+                    if hidden_size is None:
+                        print(f"❌ 无法推断 hidden_size (n_out={n_out})")
+                        return None
+
+                    model = xresnet1d101(
+                        input_channels=n_in,
+                        num_classes=n_out,
+                        lin_ftrs_head=[hidden_size]
+                    ).to(device)
+
+                    try:
+                        model.load_state_dict(state, strict=True)
+                        print("✅ finetuned model weights loaded successfully")
+                    except Exception as e:
+                        print("❌ Error loading weights:", e)
+                        return None
+
+                    model.eval()
+                    return model
+                    
+                except ImportError as e2:
+                    print(f"❌ Alternative import also failed: {e2}")
+                    return None
+        
+        def preprocess_signal_128(sig, scaler=None):
+            print("Warning: Using default preprocess_signal_128 function")
+            # 使用与classify_single_ecg128.py相同的预处理逻辑
+            flat = sig.flatten()[:, None]
+            if scaler is not None:
+                scaled = scaler.transform(flat).reshape(sig.shape)
+            else:
+                scaler = StandardScaler().fit(flat)
+                scaled = scaler.transform(flat).reshape(sig.shape)
+            return scaled, scaler
 
 # 1. 配置微调模型路径（超类预测）
 HERE            = os.path.dirname(os.path.realpath(__file__))

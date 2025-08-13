@@ -58,6 +58,20 @@ try:
     exec(code_128, globals_128)
     print("✅ Subclass prediction module loaded successfully")
 
+    # 确保set_seed_128函数可用
+    if 'set_seed' in globals_128:
+        globals_128['set_seed_128'] = globals_128['set_seed']
+    else:
+        # 如果没有set_seed函数，创建一个默认的
+        def set_seed_128(seed=42):
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+            import random
+            random.seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+        globals_128['set_seed_128'] = set_seed_128
+
     # Now directly call the corresponding functions
     if class_type == "superclass":
         print("\n🔍 Using superclass prediction model...")

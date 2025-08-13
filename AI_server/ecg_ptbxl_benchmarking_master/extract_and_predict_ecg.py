@@ -88,13 +88,13 @@ def build_class_map(mlb):
     """
     return {i:cls for i,cls in enumerate(mlb.classes_)}
 
-def process_and_predict(dicom_file, class_type="superclass"):
+def process_and_predict(dicom_file, class_type="subclass"):
     """
     处理DICOM文件并进行ECG预测
     
     参数:
         dicom_file: DICOM文件路径
-        class_type: 预测类型，"superclass"（超类，5分类）或 "subclass"（子类，71分类）
+        class_type: 预测类型，"superclass"（超类，5分类）或 "subclass"（子类，71分类），默认为"subclass"
     
     返回:
         预测结果字典 {label: probability}
@@ -197,11 +197,11 @@ def _predict_subclass(dicom_file):
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print("用法: python extract_and_predict_ecg.py <dicom_path> [class_type]")
-        print("class_type: superclass (超类，5分类) 或 subclass (子类，71分类)，默认为 superclass")
+        print("class_type: superclass (超类，5分类) 或 subclass (子类，71分类)，默认为 subclass")
         sys.exit(1)
 
     dicom_path = sys.argv[1]
-    class_type = sys.argv[2] if len(sys.argv) > 2 else "superclass"
+    class_type = sys.argv[2] if len(sys.argv) > 2 else "subclass"
     
     # 处理 DICOM 文件并获取预测结果（字典类型）
     try:

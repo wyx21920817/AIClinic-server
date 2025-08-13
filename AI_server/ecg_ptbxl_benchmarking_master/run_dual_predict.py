@@ -14,15 +14,15 @@ import torch.nn.functional as F
 
 if len(sys.argv) < 2:
     print("Usage: python3 run_dual_predict.py <dicom_path> [class_type]")
-    print("class_type: superclass (5-class) or subclass (71-class), default is superclass")
+    print("class_type: superclass (5-class) or subclass (71-class), default is subclass")
     print("\nExamples:")
     print("  python3 run_dual_predict.py test_00045_lr.dcm superclass  # Predict 5 superclasses")
     print("  python3 run_dual_predict.py test_00045_lr.dcm subclass    # Predict 71 subclasses")
-    print("  python3 run_dual_predict.py test_00045_lr.dcm             # Default superclass prediction")
+    print("  python3 run_dual_predict.py test_00045_lr.dcm             # Default subclass prediction")
     sys.exit(1)
 
 dicom_path = sys.argv[1]
-class_type = sys.argv[2] if len(sys.argv) > 2 else "superclass"
+class_type = sys.argv[2] if len(sys.argv) > 2 else "subclass"
 
 print(f"🚀 Starting prediction for DICOM: {dicom_path}")
 print(f"🎯 Prediction type: {class_type}")

@@ -1,0 +1,24 @@
+{
+    "title": "Left Bundle Branch Block (15592_hr)",
+    "lead_name": "II",
+    "report_text": "\nClinical Observation for Left Bundle Branch Block (15592_hr) (II): QRS duration is considered prolonged if > 0.12 seconds (typically).\n- QRS durations (Refined Estimation): Mean=0.134s, Min=0.112s, Max=0.140s.\n- 11 out of 12 QRS durations (Refined Estimation) are > 0.12s.",
+    "metrics": {
+        "qrs_mean_s": 0.13400000000000004,
+        "wide_qrs_count": 11,
+        "total_qrs_count": 12
+    },
+    "image_paths": [
+        "lbbb_qrs_analysis.png"
+    ],
+    "validation": {
+        "status": "pass",
+        "reasons": [
+            "mean_qrs 0.134≥0.12 or wide_share 0.92≥0.50"
+        ],
+        "metrics_used": {
+            "mean_qrs": 0.13400000000000004,
+            "wide_share": 0.92
+        }
+    },
+    "processing_time_seconds": 0.76
+}

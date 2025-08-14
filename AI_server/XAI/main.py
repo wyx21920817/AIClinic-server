@@ -4,7 +4,6 @@ import json
 import os
 import time
 from .xai.ecg_utils import load_ecg_data
-from .xai.result_io import write_results_index
 from .xai.explanations.validators import (
     validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr
 )
@@ -28,13 +27,12 @@ VISUALIZATION_DISPATCHER = {
 
 # main.py 
 
-def run_xai_tasks(
+def run_xai_tasks_advanced(
     tasks,
     output_dir=None,
     default_dicom_dir=None,
     default_db_dir=None,
     default_lead_index=None,
-    write_index=True,
     return_reports=True,
     verbose=True,
 ):
@@ -53,12 +51,11 @@ def run_xai_tasks(
     - default_dicom_dir: fallback DICOM directory when task does not specify
     - default_db_dir: fallback WFDB base directory when task does not specify
     - default_lead_index: fallback lead index when task does not specify
-    - write_index: write a unified results index JSON
     - return_reports: include full report JSON in return payload
     - verbose: print progress logs
 
     Returns
-    - dict with keys: 'output_dir', 'index_path' (optional), 'results' (list of per-task results)
+    - dict with key: 'results' (list of per-task results)
     """
     default_out = os.path.join(os.path.dirname(__file__), "data", "ecg_analysis_results")
     output_dir = output_dir or default_out
@@ -123,21 +120,33 @@ def run_xai_tasks(
         error = None
 
         try:
+            # Unified loading: allow modules to accept either single-lead arrays or multi-lead dicts
+            # For RBBB we may call specialized function with optional dicom path
             if abnormality == "RBBB":
                 report_data = visualization_func(
                     record_name=merged_task.get("instance_id") or merged_task.get("record_name"),
+                    dicom_filepath=(
+                        os.path.join(merged_task.get("dicom_dir"), f"{merged_task.get('instance_id')}.dcm")
+                        if merged_task.get("dicom_dir") and merged_task.get("instance_id") else None
+                    ),
                     db_dir=merged_task.get("db_dir"),
                     output_dir=task_output_dir,
                 )
             else:
-                ecg_signal, fs, lead_name = load_ecg_data(merged_task)
-                if ecg_signal is not None:
-                    title_map = {
-                        "LBBB": "Left Bundle Branch Block", "1dAVB": "1st Degree AV Block",
-                        "AF": "Atrial Fibrillation", "ST": "Sinus Tachycardia"
-                    }
-                    title = f"{title_map.get(abnormality, abnormality)} ({record_identifier})"
-                    report_data = visualization_func(ecg_signal, fs, title, lead_name, task_output_dir)
+                data = load_ecg_data(merged_task)
+                if isinstance(data, tuple) and len(data) == 3:
+                    ecg_signal, fs, lead_name = data
+                    if ecg_signal is not None:
+                        title_map = {
+                            "LBBB": "Left Bundle Branch Block", "1dAVB": "1st Degree AV Block",
+                            "AF": "Atrial Fibrillation", "ST": "Sinus Tachycardia"
+                        }
+                        title = f"{title_map.get(abnormality, abnormality)} ({record_identifier})"
+                        report_data = visualization_func(ecg_signal, fs, title, lead_name, task_output_dir)
+                elif isinstance(data, dict):
+                    # For future multi-lead modules (e.g., LBBB multi-lead), dispatch accordingly if needed
+                    # Currently single-lead functions do not take dict; skip here.
+                    pass
                 else:
                     if verbose:
                         print(f"Failed to load data for {record_identifier}. Skipping.")
@@ -202,17 +211,61 @@ def run_xai_tasks(
                 "task_output_dir": task_output_dir,
             })
 
-    index_path = None
-    if write_index:
-        try:
-            index_path = write_results_index(output_dir)
-            if verbose:
-                print(f"Results index written: {index_path}")
-        except Exception as e:
-            if verbose:
-                print(f"Failed to write results index: {e}")
+    return {"results": results}
 
-    return {"output_dir": output_dir, "index_path": index_path, "results": results}
+
+def run_xai_tasks(
+    abnormalities,
+    instance_id: str,
+    return_reports: bool = True,
+    verbose: bool = True,
+):
+    """
+    Simplified API: run XAI by specifying one or multiple abnormality names and an instance_id.
+
+    Parameters:
+    - abnormalities: str | list[str] — e.g., 'AF' or ['AF','1dAVB']
+    - instance_id: str — unified identifier
+    - return_reports: include full report JSON in return payload
+
+    Behavior:
+    - Non-RBBB tasks assume DICOM under AI_server/dicoms
+    - RBBB tasks assume WFDB under XAI/data/ecg_files
+
+    Returns:
+    - { "results": [...] }
+    """
+    base_dir = os.path.dirname(__file__)
+    default_dicom_dir = os.path.normpath(os.path.join(base_dir, "..", "dicoms"))
+    default_db_dir = os.path.normpath(os.path.join(base_dir, "data", "ecg_files"))
+
+    abnormalities_list = [abnormalities] if isinstance(abnormalities, str) else list(abnormalities or [])
+
+    tasks = []
+    for abn in abnormalities_list:
+        if abn == "RBBB":
+            tasks.append({
+                "abnormality": abn,
+                "instance_id": instance_id,
+                "db_dir": default_db_dir,
+            })
+        else:
+            tasks.append({
+                "abnormality": abn,
+                "instance_id": instance_id,
+                "lead_index": 1,
+                "dicom_dir": default_dicom_dir,
+            })
+
+    out = run_xai_tasks_advanced(
+        tasks=tasks,
+        default_dicom_dir=default_dicom_dir,
+        default_db_dir=default_db_dir,
+        default_lead_index=1,
+        return_reports=return_reports,
+        verbose=verbose,
+    )
+    return {"results": out.get("results", [])}
 
 
 def main(config_path):
@@ -226,7 +279,10 @@ def main(config_path):
     output_dir = config.get("output_dir", default_out)
     tasks = config.get("tasks", [])
 
-    run_xai_tasks(tasks, output_dir=output_dir, write_index=True, return_reports=False, verbose=True)
+    # Backward-compatible JSON entrypoint uses advanced API
+    out = run_xai_tasks_advanced(tasks, output_dir=output_dir, return_reports=False, verbose=True)
+    # Print a minimal summary to stdout for CLI usage
+    print(json.dumps({"results": out.get("results", [])}, ensure_ascii=False))
     
 if __name__ == "__main__":
     import sys

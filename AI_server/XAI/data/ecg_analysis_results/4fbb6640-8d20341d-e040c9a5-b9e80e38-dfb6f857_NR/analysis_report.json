@@ -1,0 +1,27 @@
+{
+    "title": "NR (4fbb6640-8d20341d-e040c9a5-b9e80e38-dfb6f857)",
+    "lead_name": "Lead II",
+    "report_text": "Normal ECG overview for NR (4fbb6640-8d20341d-e040c9a5-b9e80e38-dfb6f857) (Lead II).\n- Expected features: regular rhythm, HR 60–100 bpm, narrow QRS (0.06–0.11 s).\n- RR histogram shows normal band shading (0.6–1.0 s).",
+    "metrics": {
+        "average_heart_rate_bpm": 79.80492130348038,
+        "rr_mean_s": 0.7518333333333334,
+        "rr_std_s": 0.0005527707983925671,
+        "rr_cv": 0.0007352305010763472
+    },
+    "image_paths": [
+        "normal_ecg_overview.png",
+        "normal_rr_histogram.png"
+    ],
+    "validation": {
+        "status": "pass",
+        "reasons": [
+            "HR 60–100",
+            "rr_cv 0.00<0.08"
+        ],
+        "metrics_used": {
+            "avg_hr": 79.80492130348038,
+            "rr_cv": 0.0007352305010763472
+        }
+    },
+    "processing_time_seconds": 0.98
+}

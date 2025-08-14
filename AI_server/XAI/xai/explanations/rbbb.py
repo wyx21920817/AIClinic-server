@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import neurokit2 as nk
 from scipy.signal import find_peaks
-from ..ecg_utils import plot_ecg_with_grid, load_wfdb_signals
+from ..ecg_utils import plot_ecg_with_grid, load_wfdb_signals, load_dicom_signals
 
 
 def _refined_qrs_regions(signal, fs, r_idx, is_late_terminal=False):
@@ -94,10 +94,22 @@ def _categorize_qrs(duration_s: float) -> str:
     return "wide"
 
 
-def generate_rbbb_visuals(record_name, db_dir=None, output_dir="."):
+def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, output_dir="."):
     # Leads needed
     need = ["V1", "V2", "V6", "I"]
-    leads = load_wfdb_signals(record_name, leads=need, db_dir=db_dir, allow_missing=True)
+    leads = {}
+    try:
+        if dicom_filepath or (record_name and str(record_name).lower().endswith((".dcm", ".dicom"))):
+            raw = load_dicom_signals(dicom_filepath or record_name)
+            # filter and rename as needed
+            for k in list(raw.keys()):
+                if k in need or k == "I":
+                    leads[k] = raw[k]
+        else:
+            leads = load_wfdb_signals(record_name, leads=need, db_dir=db_dir, allow_missing=True)
+    except Exception as e:
+        print(f"Failed to load ECG for RBBB: {e}")
+        leads = {}
 
     if not leads or ("V1" not in leads and "V2" not in leads):
         print("Missing V1/V2 leads, cannot fully assess for RBBB.")

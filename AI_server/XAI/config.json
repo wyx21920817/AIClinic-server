@@ -47,9 +47,14 @@
             "lead_index": "II"
         },
         {
-            "abnormality": "1dAVB",
+            "abnormality": "RBBB",
             "filepath": "00234_lr.dcm",
-            "lead_index": "II"
+            "lead_index": [
+                "V1",
+                "V2",
+                "V6",
+                "I"
+            ]
         },
         {
             "abnormality": "NR",

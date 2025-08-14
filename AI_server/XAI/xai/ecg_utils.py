@@ -222,8 +222,86 @@ def load_dicom_signal(filepath, lead_name_or_index):
         print(f"Error loading DICOM ECG from {filepath}: {e}")
         return None, None, None
 
+def load_dicom_signals(filepath):
+    """Load all ECG leads from a DICOM waveform file.
+
+    Returns a dict mapping lead names to (signal_mV, fs).
+    Lead names are resolved from ChannelSourceSequence.CodeMeaning when possible.
+    """
+    try:
+        ds = pydicom.dcmread(_resolve_path(filepath))
+        if "WaveformSequence" not in ds or not ds.WaveformSequence:
+            raise ValueError("DICOM does not contain WaveformSequence.")
+
+        wf = ds.WaveformSequence[0]
+        fs = float(wf.SamplingFrequency)
+        num_channels = int(wf.NumberOfWaveformChannels)
+        num_samples = int(wf.NumberOfWaveformSamples)
+        channel_defs = wf.ChannelDefinitionSequence
+
+        # Lead names
+        lead_names = []
+        try:
+            lead_names = [ch.ChannelSourceSequence[0].CodeMeaning for ch in channel_defs]
+        except Exception:
+            std = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
+            lead_names = std[:num_channels] if num_channels <= len(std) else [f"Lead {i+1}" for i in range(num_channels)]
+
+        if not lead_names:
+            raise ValueError("Unable to resolve lead names from DICOM.")
+
+        # Data type and demux
+        interp = getattr(wf, "WaveformSampleInterpretation", "SS").upper()
+        bits = int(getattr(wf, "WaveformBitsAllocated", 16))
+        little = getattr(ds, "is_little_endian", True)
+        dtype_map = {
+            ("SS", 16): np.int16,
+            ("US", 16): np.uint16,
+            ("SB", 8): np.int8,
+            ("UB", 8): np.uint8,
+            ("SL", 32): np.int32,
+            ("UL", 32): np.uint32,
+            ("FD", 64): np.float64,
+            ("FL", 32): np.float32,
+        }
+        dtype = np.dtype(dtype_map.get((interp, bits), np.int16)).newbyteorder('<' if little else '>')
+
+        raw = np.frombuffer(wf.WaveformData, dtype=dtype)
+        if raw.size != num_channels * num_samples:
+            if raw.size % num_channels != 0:
+                raise ValueError(f"WaveformData size mismatch: {raw.size} vs channels*samples {num_channels*num_samples}")
+            num_samples = raw.size // num_channels
+        data = raw.reshape(num_samples, num_channels)
+
+        out = {}
+        for i in range(num_channels):
+            ch_def = channel_defs[i]
+            sens = float(getattr(ch_def, "ChannelSensitivity", 1.0))
+            corr = float(getattr(ch_def, "ChannelSensitivityCorrectionFactor", 1.0))
+            base = float(getattr(ch_def, "ChannelBaseline", 0.0))
+            units = None
+            try:
+                units = ch_def.ChannelSensitivityUnitsSequence[0].CodeValue
+            except Exception:
+                units = "uV"
+
+            sig = data[:, i].astype(np.float64)
+            sig_uv = (sig * sens * corr) + base
+            sig_mv = sig_uv / 1000.0 if isinstance(units, str) and units.lower().find('uv') != -1 else sig_uv / 1000.0
+            out[lead_names[i]] = (sig_mv, fs)
+
+        print(f"Loaded DICOM {os.path.basename(filepath)} with {len(out)} channels at {fs} Hz")
+        return out
+    except Exception as e:
+        print(f"Error loading DICOM ECG (multi-lead) from {filepath}: {e}")
+        return {}
+
 def load_ecg_data(config_task):
-    """Load WFDB or DICOM data based on configuration, supporting unified instance_id.
+    """Load ECG data per task.
+
+    Returns either:
+    - (signal, fs, lead_name) for single-lead workflows, or
+    - {lead_name: (signal, fs), ...} for multi-lead workflows when 'require_multi_lead' is truthy.
 
     Supported fields (by priority):
     - instance_id：
@@ -240,31 +318,46 @@ def load_ecg_data(config_task):
     db_dir = config_task.get("db_dir") or DEFAULT_DATA_DIR
     dicom_dir = config_task.get("dicom_dir")
 
+    require_multi = bool(config_task.get("require_multi_lead"))
+
     # 1) Unified instance_id process
     if instance_id:
-        # 1.1 Directly DICOM path
+        # 1.1 Multi-lead required
+        if require_multi:
+            # DICOM path directly provided
+            if isinstance(instance_id, str) and instance_id.lower().endswith((".dcm", ".dicom")):
+                return load_dicom_signals(_resolve_path(instance_id))
+            # DICOM via dicom_dir
+            if dicom_dir:
+                candidate = os.path.join(dicom_dir, f"{instance_id}.dcm")
+                resolved = _resolve_path(candidate)
+                if os.path.exists(resolved):
+                    return load_dicom_signals(resolved)
+            # WFDB multi-lead
+            leads = config_task.get("leads") or "all"
+            return load_wfdb_signals(instance_id, leads=leads, db_dir=db_dir)
+
+        # 1.2 Single-lead
         if isinstance(instance_id, str) and instance_id.lower().endswith((".dcm", ".dicom")):
             return load_dicom_signal(_resolve_path(instance_id), lead_info)
-
-        # 1.2 Based on dicom_dir, concatenate DICOM file
         if dicom_dir:
             candidate = os.path.join(dicom_dir, f"{instance_id}.dcm")
             resolved = _resolve_path(candidate)
             if os.path.exists(resolved):
                 return load_dicom_signal(resolved, lead_info)
-
-        # 1.3 Process as WFDB record name
         if isinstance(lead_info, list):
             return load_wfdb_signals(instance_id, leads=lead_info, db_dir=db_dir)
-        else:
-            return load_wfdb_signal(instance_id, lead_info, db_dir=db_dir)
+        return load_wfdb_signal(instance_id, lead_info, db_dir=db_dir)
 
     # 2) Compatible with old fields
     if filepath and filepath.lower().endswith((".dcm", ".dicom")):
-        return load_dicom_signal(_resolve_path(filepath), lead_info)
+        return load_dicom_signals(_resolve_path(filepath)) if require_multi else load_dicom_signal(_resolve_path(filepath), lead_info)
     if record_name and record_name.lower().endswith((".dcm", ".dicom")):
-        return load_dicom_signal(_resolve_path(record_name), lead_info)
+        return load_dicom_signals(_resolve_path(record_name)) if require_multi else load_dicom_signal(_resolve_path(record_name), lead_info)
     if record_name:
+        if require_multi:
+            leads = config_task.get("leads") or "all"
+            return load_wfdb_signals(record_name, leads=leads, db_dir=db_dir)
         if isinstance(lead_info, list):
             return load_wfdb_signals(record_name, leads=lead_info, db_dir=db_dir)
         return load_wfdb_signal(record_name, lead_info, db_dir=db_dir)

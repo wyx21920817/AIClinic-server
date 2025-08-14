@@ -41,7 +41,7 @@ except ImportError:
                 from code.models.xresnet1d import xresnet1d101
                 
                 # 1. 载入 checkpoint
-                ckpt = torch.load(weights_path, map_location=device)
+                ckpt = torch.load(weights_path, map_location=device, weights_only=False)
                 state = ckpt.get('model', ckpt)
 
                 # 2. 从 state 推断分类头 hidden_size
@@ -88,7 +88,7 @@ except ImportError:
                     print("✅ Successfully imported xresnet1d101 using alternative path")
                     
                     # 继续加载模型...
-                    ckpt = torch.load(weights_path, map_location=device)
+                    ckpt = torch.load(weights_path, map_location=device, weights_only=False)
                     state = ckpt.get('model', ckpt)
 
                     hidden_size = None

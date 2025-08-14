@@ -5,8 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import neurokit2 as nk
 from scipy.signal import find_peaks
-from xai.ecg_utils import plot_ecg_with_grid
-from xai.clinical_reports import generate_report_bbb
+from ..ecg_utils import plot_ecg_with_grid
+from ..clinical_reports import generate_report_bbb
 
 def generate_lbbb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
     """Left Bundle Branch Block analysis with refined QRS estimation (notebook-aligned)."""

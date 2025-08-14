@@ -4,8 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import neurokit2 as nk
-from xai.ecg_utils import plot_ecg_with_grid
-from xai.clinical_reports import generate_report_1davb
+from ..ecg_utils import plot_ecg_with_grid
+from ..clinical_reports import generate_report_1davb
 
 def generate_avb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
     """

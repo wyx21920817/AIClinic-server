@@ -2,7 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import neurokit2 as nk
-from xai.ecg_utils import plot_ecg_with_grid
+from ..ecg_utils import plot_ecg_with_grid
 
 
 def generate_sb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):

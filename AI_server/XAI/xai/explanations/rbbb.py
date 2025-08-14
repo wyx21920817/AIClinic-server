@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import neurokit2 as nk
 from scipy.signal import find_peaks
-from xai.ecg_utils import plot_ecg_with_grid, load_wfdb_signals
+from ..ecg_utils import plot_ecg_with_grid, load_wfdb_signals
 
 
 def _refined_qrs_regions(signal, fs, r_idx, is_late_terminal=False):

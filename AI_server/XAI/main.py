@@ -3,18 +3,18 @@
 import json
 import os
 import time
-from xai.ecg_utils import load_ecg_data
-from xai.result_io import write_results_index
-from xai.explanations.validators import (
+from .xai.ecg_utils import load_ecg_data
+from .xai.result_io import write_results_index
+from .xai.explanations.validators import (
     validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr
 )
-from xai.explanations.normal import generate_normal_visuals
-from xai.explanations.sb import generate_sb_visuals
-from xai.explanations.af import generate_af_visuals
-from xai.explanations.st import generate_st_visuals
-from xai.explanations.lbbb import generate_lbbb_visuals
-from xai.explanations.rbbb import generate_rbbb_visuals
-from xai.explanations.avb import generate_avb_visuals
+from .xai.explanations.normal import generate_normal_visuals
+from .xai.explanations.sb import generate_sb_visuals
+from .xai.explanations.af import generate_af_visuals
+from .xai.explanations.st import generate_st_visuals
+from .xai.explanations.lbbb import generate_lbbb_visuals
+from .xai.explanations.rbbb import generate_rbbb_visuals
+from .xai.explanations.avb import generate_avb_visuals
 
 VISUALIZATION_DISPATCHER = {
     "AF": generate_af_visuals,

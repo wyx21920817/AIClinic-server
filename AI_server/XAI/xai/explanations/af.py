@@ -1,7 +1,7 @@
 # explanation_af.py
 import os, json, numpy as np, matplotlib.pyplot as plt, neurokit2 as nk
-from xai.ecg_utils import plot_ecg_with_grid
-from xai.clinical_reports import generate_report_afib
+from ..ecg_utils import plot_ecg_with_grid
+from ..clinical_reports import generate_report_afib
 
 def generate_af_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
     if ecg_signal is None: return None

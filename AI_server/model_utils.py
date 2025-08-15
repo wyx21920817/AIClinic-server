@@ -30,12 +30,12 @@ def predict_dnn(ecg_array: np.ndarray) -> dict:
     print("Feeding tensor shape:", x.shape)
     preds = _model_dnn.predict(x)
     return {
-        '1dAVb': float(preds[0][0]),
+        '1dAVB': float(preds[0][0]),
         'RBBB': float(preds[0][1]),
         'LBBB': float(preds[0][2]),
-        'SB': float(preds[0][3]),
-        'AF': float(preds[0][4]),
-        'ST': float(preds[0][5])
+        'SBRAD': float(preds[0][3]),
+        'AFIB': float(preds[0][4]),
+        'STACH': float(preds[0][5])
     }
 
 def predict_ecg(ecg_array: np.ndarray) -> dict:

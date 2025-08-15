@@ -435,18 +435,18 @@ def generate_lbbb_multilead(record_name=None, dicom_filepath=None, db_dir=None, 
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, "lbbb_qrs_histogram.png"))
         plt.close(fig_hist)
-        # 写出逐搏 CSV 供人工核对
-        try:
-            import csv
-            csv_path = os.path.join(output_dir, 'lbbb_qrs_durations.csv')
-            with open(csv_path, 'w', newline='', encoding='utf-8') as fcsv:
-                w = csv.writer(fcsv)
-                w.writerow(["lead", "beat_index", "qrs_start_idx", "qrs_end_idx", "duration_s", "start_time_s", "end_time_s", "fs"])
-                for row in perbeat_rows:
-                    lead, bi, sidx, eidx, dur, ts, te, fs_ = row
-                    w.writerow([lead, bi, sidx, eidx, f"{dur:.6f}", f"{ts:.6f}", f"{te:.6f}", fs_])
-        except Exception:
-            pass
+        # # 写出逐搏 CSV 供人工核对
+        # try:
+        #     import csv
+        #     csv_path = os.path.join(output_dir, 'lbbb_qrs_durations.csv')
+        #     with open(csv_path, 'w', newline='', encoding='utf-8') as fcsv:
+        #         w = csv.writer(fcsv)
+        #         w.writerow(["lead", "beat_index", "qrs_start_idx", "qrs_end_idx", "duration_s", "start_time_s", "end_time_s", "fs"])
+        #         for row in perbeat_rows:
+        #             lead, bi, sidx, eidx, dur, ts, te, fs_ = row
+        #             w.writerow([lead, bi, sidx, eidx, f"{dur:.6f}", f"{ts:.6f}", f"{te:.6f}", fs_])
+        # except Exception:
+        #     pass
 
     meets_lbbb = qrs_pool and (qrs_mean >= 0.12) and (broad_r_count > 0) and (deep_s_count > 0)
     meets_ilbbb = qrs_pool and (0.11 <= qrs_mean < 0.12) and (broad_r_count > 0) and (deep_s_count > 0)

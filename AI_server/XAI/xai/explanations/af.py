@@ -17,7 +17,7 @@ def generate_af_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
     fig_ecg, ax_ecg = plt.subplots(figsize=(15, 6))
     plot_ecg_with_grid(time_axis, ecg_signal, f'ECG {lead_name} - {ecg_title}', ax_ecg, sampling_rate)
     ax_ecg.scatter(time_axis[r_peak_indices], ecg_signal[r_peak_indices], color='dodgerblue', marker='o', s=30, label='R-peaks', zorder=5)
-    ax_ecg.legend(); plt.tight_layout(); plt.savefig(os.path.join(output_dir, "afib_ecg_with_rpeaks.png")); plt.close(fig_ecg)
+    # ax_ecg.legend(); plt.tight_layout(); plt.savefig(os.path.join(output_dir, "afib_ecg_with_rpeaks.png")); plt.close(fig_ecg)
 
     rr_intervals_sec = np.diff(r_peak_indices) / sampling_rate if len(r_peak_indices) > 1 else np.array([])
     

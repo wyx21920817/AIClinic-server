@@ -12,7 +12,7 @@ _model_dnn = None
 
 def load_models():
     """
-    加载 DNN 模型
+    加载 DNN 
     """
     global _model_dnn
     _model_dnn = load_model(DNN_MODEL_PATH)

@@ -25,7 +25,7 @@ fi
 echo "[INFO] 安装Python依赖..."
 pip install -r requirements.txt
 pip install uvicorn
-pip install dotenv
+pip install python-multipart
 
 # 降级protobuf解决兼容性问题
 echo "[INFO] 降级protobuf到兼容版本..."

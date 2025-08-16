@@ -73,5 +73,5 @@ def generate_st_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
             "average_heart_rate_bpm": float(avg_hr),
             "mean_rr_interval_s": float(np.mean(rr)) if rr.size > 0 else None
         },
-        "image_paths": ["sinus_tachycardia_analysis.png"],
+        "image_paths": {"sinus_tachycardia_analysis.png": os.path.join(output_dir, "sinus_tachycardia_analysis.png")},
     }

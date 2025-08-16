@@ -72,4 +72,8 @@ def generate_af_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
     }
 
     return {"title": ecg_title, "lead_name": lead_name, "report_text": report_text, "metrics": metrics,
-            "image_paths": ["afib_ecg_with_rpeaks.png", "afib_rr_histogram.png", "afib_pwave_regions.png"]}
+            "image_paths": {
+                "afib_ecg_with_rpeaks.png": os.path.join(output_dir, "afib_ecg_with_rpeaks.png"),
+                "afib_rr_histogram.png": os.path.join(output_dir, "afib_rr_histogram.png"),
+                "afib_pwave_regions.png": os.path.join(output_dir, "afib_pwave_regions.png")
+            }}

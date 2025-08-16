@@ -101,10 +101,14 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
     try:
         if dicom_filepath or (record_name and str(record_name).lower().endswith((".dcm", ".dicom"))):
             raw = load_dicom_signals(dicom_filepath or record_name)
-            # filter and rename as needed
+            # filter and rename as needed - handle both "V1" and "Lead V1" formats
             for k in list(raw.keys()):
-                if k in need or k == "I":
-                    leads[k] = raw[k]
+                # Extract base lead name (remove "Lead " prefix if present)
+                base_lead = k.replace("Lead ", "") if k.startswith("Lead ") else k
+                if base_lead in need:
+                    leads[base_lead] = raw[k]
+                elif k == "I" or base_lead == "I":
+                    leads["I"] = raw[k]
         else:
             leads = load_wfdb_signals(record_name, leads=need, db_dir=db_dir, allow_missing=True)
     except Exception as e:
@@ -263,5 +267,8 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
         "title": f"RBBB Screening ({record_name})",
         "report_text": report_text,
         "metrics": metrics,
-        "image_paths": ["rbbb_leads_analysis.png", "rbbb_qrs_histogram.png"],
+        "image_paths": {
+            "rbbb_leads_analysis.png": os.path.join(output_dir, "rbbb_leads_analysis.png"),
+            "rbbb_qrs_histogram.png": os.path.join(output_dir, "rbbb_qrs_histogram.png")
+        },
     }

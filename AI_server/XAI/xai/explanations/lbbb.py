@@ -188,7 +188,7 @@ def generate_lbbb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
         'lead_name': lead_name,
         'report_text': report_text,
         'metrics': metrics,
-        'image_paths': ['lbbb_qrs_analysis.png']
+        'image_paths': {'lbbb_qrs_analysis.png': os.path.join(output_dir, 'lbbb_qrs_analysis.png')}
     }
 
 
@@ -478,7 +478,10 @@ def generate_lbbb_multilead(record_name=None, dicom_filepath=None, db_dir=None, 
         "title": f"LBBB Screening ({record_name})",
         "report_text": report_text,
         "metrics": metrics,
-        "image_paths": ["lbbb_leads_analysis.png", "lbbb_qrs_histogram.png"],
+        "image_paths": {
+            "lbbb_leads_analysis.png": os.path.join(output_dir, "lbbb_leads_analysis.png"),
+            "lbbb_qrs_histogram.png": os.path.join(output_dir, "lbbb_qrs_histogram.png")
+        },
         "criteria_flags": {
             "mean_qrs_ge_0_12": bool(qrs_pool and (qrs_mean >= 0.12)),
             "deep_s_v1": deep_s_count > 0,

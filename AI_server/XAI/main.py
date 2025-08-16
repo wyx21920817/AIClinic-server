@@ -17,7 +17,7 @@ def get_api_download_url(filename, instance_id):
 
 # try to import XAI modules and dicom_utils
 try:
-    from .xai.ecg_utils import load_ecg_data
+    from .xai.ecg_utils import load_dicom_signals_from_dataset
     from .xai.explanations.validators import (
         validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr
     )
@@ -99,85 +99,12 @@ except ImportError:
 VISUALIZATION_DISPATCHER = {
     "AFIB": generate_af_visuals,
     "STACH": generate_st_visuals,
+    "1dAVB": generate_avb_visuals,
     "LBBB": generate_lbbb_visuals,
     "RBBB": generate_rbbb_visuals,
-    "1dAVB": generate_avb_visuals,
     "NORM": generate_normal_visuals,
     "SB": generate_sb_visuals,
 }
-
-
-def load_ecg_data_from_dicom_dataset(dicom_dataset, lead_index=1):
-    """
-    从DICOM数据集直接加载ECG数据
-    返回: (ecg_signal, fs, lead_name)
-    """
-    try:
-        # 直接使用pydicom读取DICOM数据
-        if hasattr(dicom_dataset, 'WaveformSequence') and dicom_dataset.WaveformSequence:
-            waveform = dicom_dataset.WaveformSequence[0]
-            if hasattr(waveform, 'NumberOfWaveformChannels') and hasattr(waveform, 'NumberOfWaveformSamples'):
-                num_channels = waveform.NumberOfWaveformChannels
-                num_samples = waveform.NumberOfWaveformSamples
-                
-                if hasattr(waveform, 'WaveformData'):
-                    # 解析波形数据
-                    import numpy as np
-                    raw_data = np.frombuffer(waveform.WaveformData, dtype=np.int16)
-                    if raw_data.size >= num_channels * num_samples:
-                        # 重塑数据为 (samples, channels)
-                        data = raw_data[:num_channels * num_samples].reshape(num_samples, num_channels)
-                        
-                        # 选择指定的导联
-                        if isinstance(lead_index, int) and lead_index < num_channels:
-                            signal = data[:, lead_index].astype(np.float64)
-                            # 假设采样率为500Hz（可以从DICOM标签获取）
-                            fs = getattr(waveform, 'SamplingFrequency', 500)
-                            lead_name = f"Lead_{lead_index + 1}"
-                            return signal, fs, lead_name
-                        elif isinstance(lead_index, str):
-                            # 尝试从导联名称匹配
-                            for i in range(num_channels):
-                                signal = data[:, i].astype(np.float64)
-                                fs = getattr(waveform, 'SamplingFrequency', 500)
-                                lead_name = f"Lead_{i + 1}"
-                                if lead_index.upper() in lead_name.upper():
-                                    return signal, fs, lead_name
-                            # 如果没找到匹配的，返回第一个
-                            signal = data[:, 0].astype(np.float64)
-                            fs = getattr(waveform, 'SamplingFrequency', 500)
-                            lead_name = "Lead_1"
-                            return signal, fs, lead_name
-        
-        # 如果上面的方法失败，尝试其他DICOM标签
-        if hasattr(dicom_dataset, 'NumberOfWaveformChannels') and hasattr(dicom_dataset, 'NumberOfWaveformSamples'):
-            num_channels = dicom_dataset.NumberOfWaveformChannels
-            num_samples = dicom_dataset.NumberOfWaveformSamples
-            
-            if hasattr(dicom_dataset, 'WaveformData'):
-                import numpy as np
-                raw_data = np.frombuffer(dicom_dataset.WaveformData, dtype=np.int16)
-                if raw_data.size >= num_channels * num_samples:
-                    data = raw_data[:num_channels * num_samples].reshape(num_samples, num_channels)
-                    
-                    if isinstance(lead_index, int) and lead_index < num_channels:
-                        signal = data[:, lead_index].astype(np.float64)
-                        fs = getattr(dicom_dataset, 'SamplingFrequency', 500)
-                        lead_name = f"Lead_{lead_index + 1}"
-                        return signal, fs, lead_name
-                    else:
-                        # 返回第一个导联
-                        signal = data[:, 0].astype(np.float64)
-                        fs = getattr(dicom_dataset, 'SamplingFrequency', 500)
-                        lead_name = "Lead_1"
-                        return signal, fs, lead_name
-        
-        print(f"Failed to extract ECG signal from DICOM dataset")
-        return None, None, None
-        
-    except Exception as e:
-        print(f"Error loading ECG from DICOM dataset: {e}")
-        return None, None, None
 
 
 def run_xai_tasks(
@@ -359,18 +286,33 @@ def run_xai_tasks(
                     }
                     
                     # 使用新的函数直接从DICOM数据集加载ECG数据
-                    ecg_signal, fs, lead_name = load_ecg_data_from_dicom_dataset(dicom_dataset, 1)
+                    leads_data = load_dicom_signals_from_dataset(dicom_dataset)
                     
-                    if ecg_signal is not None:
-                        title_map = {
-                            "LBBB": "Left Bundle Branch Block", 
-                            "1dAVB": "1st Degree AV Block",
-                            "AFIB": "Atrial Fibrillation", 
-                            "STACH": "Sinus Tachycardia"
-                        }
-                        title = f"{title_map.get(abn, abn)} ({instance_id})"
-                        report_data = visualization_func(ecg_signal, fs, title, lead_name, 
-                                                      web_output_dir)
+                    if leads_data and len(leads_data) > 0:
+                        # 获取第一个可用的导联数据
+                        lead_name = list(leads_data.keys())[0]
+                        ecg_signal, fs = leads_data[lead_name]
+                        
+                        if ecg_signal is not None:
+                            title_map = {
+                                "LBBB": "Left Bundle Branch Block", 
+                                "1dAVB": "1st Degree AV Block",
+                                "AFIB": "Atrial Fibrillation", 
+                                "STACH": "Sinus Tachycardia"
+                            }
+                            title = f"{title_map.get(abn, abn)} ({instance_id})"
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, 
+                                                          web_output_dir)
+                        else:
+                            if verbose:
+                                print(f"Failed to extract ECG signal for {instance_id}. Skipping.")
+                            results.append({
+                                "status": "failed",
+                                "reason": "signal_extraction_failed",
+                                "abnormality": abn,
+                                "instance_id": instance_id,
+                            })
+                            continue
                     else:
                         if verbose:
                             print(f"Failed to extract ECG signal for {instance_id}. Skipping.")

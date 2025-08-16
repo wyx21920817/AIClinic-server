@@ -45,26 +45,28 @@ if [ -n "$PIDS" ]; then
   for PID in $PIDS; do
     echo "[INFO] 终止进程 $PID..."
     kill -9 $PID
-    sleep 1
+    echo "[INFO] 已终止占用端口 $PORT 的进程 $PID。"
   done
   
-  # 等待一下确保端口释放
-  sleep 2
-  
-  # 再次检查端口是否已释放
-  NEW_PIDS=$(lsof -t -i tcp:$PORT)
-  if [ -n "$NEW_PIDS" ]; then
-    echo "[ERROR] 无法释放端口 $PORT，仍被进程 $NEW_PIDS 占用"
-    echo "[WARNING] 将继续尝试使用端口 $PORT，可能会启动失败"
-  else
-    echo "[INFO] 已成功释放端口 $PORT"
+  # 验证所有进程是否已终止
+  sleep 1
+  REMAINING_PIDS=$(lsof -t -i tcp:$PORT)
+  if [ -n "$REMAINING_PIDS" ]; then
+    echo "[WARNING] 以下进程仍然占用端口 $PORT: $REMAINING_PIDS"
+    echo "[INFO] 尝试强制终止所有剩余进程..."
+    for PID in $REMAINING_PIDS; do
+      echo "[INFO] 强制终止进程 $PID..."
+      kill -9 $PID 2>/dev/null || echo "[ERROR] 无法终止进程 $PID"
+    done
   fi
+  
+  echo "[INFO] 已成功释放端口 $PORT"
 fi
 
 # 创建Logs目录如果不存在
 mkdir -p logs
 
 echo "[INFO] 在端口 $PORT 上启动FastAPI服务..."
-nohup uvicorn app:app --host 0.0.0.0 --port $PORT --reload --log-level info > logs/server.log 2>&1 &
+nohup uvicorn app:app --host 0.0.0.0 --port $PORT --log-level info > logs/server.log 2>&1 &
 
   echo "[INFO] 服务已在后台启动。日志保存在 logs/server.log"

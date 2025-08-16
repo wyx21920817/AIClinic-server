@@ -28,3 +28,4 @@ jupyter>=1.0.0
 ecg-plot>=0.1.0
 packaging>=21.0 
 pydicom>=2.3.0
+dotenv==0.9.9

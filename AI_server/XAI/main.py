@@ -107,6 +107,76 @@ VISUALIZATION_DISPATCHER = {
 }
 
 
+def load_ecg_data_from_dicom_dataset(dicom_dataset, lead_index=1):
+    """
+    从DICOM数据集直接加载ECG数据
+    返回: (ecg_signal, fs, lead_name)
+    """
+    try:
+        from .xai.ecg_utils import load_dicom_signals_from_dataset
+        
+        # 尝试使用新的DICOM数据集加载函数
+        if hasattr(load_dicom_signals_from_dataset, '__call__'):
+            signals = load_dicom_signals_from_dataset(dicom_dataset)
+            if signals and isinstance(lead_index, int) and lead_index < len(signals):
+                lead_names = list(signals.keys())
+                lead_name = lead_names[lead_index]
+                signal, fs = signals[lead_name]
+                return signal, fs, lead_name
+            elif signals and isinstance(lead_index, str):
+                # 如果lead_index是字符串，尝试匹配导联名称
+                for lead_name, (signal, fs) in signals.items():
+                    if lead_index.upper() in lead_name.upper():
+                        return signal, fs, lead_name
+                # 如果没找到匹配的，返回第一个
+                if signals:
+                    lead_name = list(signals.keys())[0]
+                    signal, fs = signals[lead_name]
+                    return signal, fs, lead_name
+        
+        # 备用方案：使用pydicom直接读取
+        if hasattr(dicom_dataset, 'WaveformSequence') and dicom_dataset.WaveformSequence:
+            waveform = dicom_dataset.WaveformSequence[0]
+            if hasattr(waveform, 'NumberOfWaveformChannels') and hasattr(waveform, 'NumberOfWaveformSamples'):
+                num_channels = waveform.NumberOfWaveformChannels
+                num_samples = waveform.NumberOfWaveformSamples
+                
+                if hasattr(waveform, 'WaveformData'):
+                    # 解析波形数据
+                    import numpy as np
+                    raw_data = np.frombuffer(waveform.WaveformData, dtype=np.int16)
+                    if raw_data.size >= num_channels * num_samples:
+                        # 重塑数据为 (samples, channels)
+                        data = raw_data[:num_channels * num_samples].reshape(num_samples, num_channels)
+                        
+                        # 选择指定的导联
+                        if isinstance(lead_index, int) and lead_index < num_channels:
+                            signal = data[:, lead_index].astype(np.float64)
+                            # 假设采样率为500Hz（可以从DICOM标签获取）
+                            fs = getattr(waveform, 'SamplingFrequency', 500)
+                            lead_name = f"Lead_{lead_index + 1}"
+                            return signal, fs, lead_name
+                        elif isinstance(lead_index, str):
+                            # 尝试从导联名称匹配
+                            for i in range(num_channels):
+                                signal = data[:, i].astype(np.float64)
+                                fs = getattr(waveform, 'SamplingFrequency', 500)
+                                lead_name = f"Lead_{i + 1}"
+                                if lead_index.upper() in lead_name.upper():
+                                    return signal, fs, lead_name
+                            # 如果没找到匹配的，返回第一个
+                            signal = data[:, 0].astype(np.float64)
+                            fs = getattr(waveform, 'SamplingFrequency', 500)
+                            lead_name = "Lead_1"
+                            return signal, fs, lead_name
+        
+        print(f"Failed to extract ECG signal from DICOM dataset")
+        return None, None, None
+        
+    except Exception as e:
+        print(f"Error loading ECG from DICOM dataset: {e}")
+        return None, None, None
+
 
 def run_xai_tasks(
     abnormalities,
@@ -184,19 +254,32 @@ def run_xai_tasks(
         error = None
 
         try:
+            # 首先从服务器获取DICOM数据（所有异常类型都需要）
+            try:
+                if verbose:
+                    print(f"Fetching DICOM data from server for {instance_id}")
+                
+                # 使用token从服务器获取DICOM
+                dicom_dataset = get_instance_dicom(instance_id, token)
+                if verbose:
+                    print(f"Successfully retrieved DICOM data for {instance_id}")
+                
+            except Exception as e:
+                if verbose:
+                    print(f"Failed to fetch DICOM data for {instance_id}: {e}")
+                results.append({
+                    "status": "failed",
+                    "reason": "dicom_fetch_failed",
+                    "abnormality": abn,
+                    "instance_id": instance_id,
+                    "error": str(e)
+                })
+                continue
+
             # handle different types of abnormalities
             if abn == "RBBB" or abn == "LBBB":
                 # LBBB and RBBB need four leads for analysis: V1, V2, V6, I
-                # 直接从服务器获取DICOM数据
                 try:
-                    if verbose:
-                        print(f"Fetching DICOM data from server for {instance_id}")
-                    
-                    # 使用token从服务器获取DICOM
-                    dicom_dataset = get_instance_dicom(instance_id, token)
-                    if verbose:
-                        print(f"Successfully retrieved DICOM data for {instance_id}")
-                    
                     # 构建任务配置
                     task_config = {
                         "abnormality": abn,
@@ -207,10 +290,10 @@ def run_xai_tasks(
                     }
                     
                     if abn == "RBBB":
-                        # RBBB处理
+                        # RBBB处理 - 传递dicom_dataset作为dicom_filepath参数
                         report_data = visualization_func(
                             record_name=instance_id,
-                            dicom_dataset=dicom_dataset,  # 传递DICOM数据集
+                            dicom_filepath=dicom_dataset,  # 修复：传递dicom_dataset
                             db_dir=default_db_dir,
                             output_dir=web_output_dir,
                         )
@@ -232,10 +315,10 @@ def run_xai_tasks(
                                 })
                                 continue
                         
-                        # 调用多导联LBBB分析函数
+                        # 调用多导联LBBB分析函数 - 修复：传递dicom_dataset作为dicom_filepath
                         report_data = generate_lbbb_multilead(
                             record_name=instance_id,
-                            dicom_dataset=dicom_dataset,  # 传递DICOM数据集
+                            dicom_filepath=dicom_dataset,  # 修复：传递dicom_dataset
                             db_dir=default_db_dir,
                             output_dir=web_output_dir
                         )
@@ -253,26 +336,18 @@ def run_xai_tasks(
                             
                 except Exception as e:
                     if verbose:
-                        print(f"Failed to fetch DICOM data for {instance_id}: {e}")
+                        print(f"Failed to process {abn} for {instance_id}: {e}")
                     results.append({
                         "status": "failed",
-                        "reason": "dicom_fetch_failed",
+                        "reason": "processing_failed",
                         "abnormality": abn,
                         "instance_id": instance_id,
                         "error": str(e)
                     })
                     continue
             else:
-                # 其他异常类型：直接从服务器获取DICOM数据
+                # 其他异常类型：直接从DICOM数据集加载ECG数据
                 try:
-                    if verbose:
-                        print(f"Fetching DICOM data from server for {instance_id}")
-                    
-                    # 使用token从服务器获取DICOM
-                    dicom_dataset = get_instance_dicom(instance_id, token)
-                    if verbose:
-                        print(f"Successfully retrieved DICOM data for {instance_id}")
-                    
                     # 构建任务配置
                     task_config = {
                         "abnormality": abn,
@@ -281,36 +356,25 @@ def run_xai_tasks(
                         "dicom_dataset": dicom_dataset,  # 传递DICOM数据集
                     }
                     
-                    # 使用load_ecg_data处理DICOM数据集
-                    data = load_ecg_data(task_config)
-                    if isinstance(data, tuple) and len(data) == 3:
-                        ecg_signal, fs, lead_name = data
-                        if ecg_signal is not None:
-                            title_map = {
-                                "LBBB": "Left Bundle Branch Block", 
-                                "1dAVB": "1st Degree AV Block",
-                                "AFIB": "Atrial Fibrillation", 
-                                "STACH": "Sinus Tachycardia"
-                            }
-                            title = f"{title_map.get(abn, abn)} ({instance_id})"
-                            report_data = visualization_func(ecg_signal, fs, title, lead_name, 
-                                                          web_output_dir)
-                        else:
-                            if verbose:
-                                print(f"Failed to extract ECG signal for {instance_id}. Skipping.")
-                            results.append({
-                                "status": "failed",
-                                "reason": "signal_extraction_failed",
-                                "abnormality": abn,
-                                "instance_id": instance_id,
-                            })
-                            continue
+                    # 使用新的函数直接从DICOM数据集加载ECG数据
+                    ecg_signal, fs, lead_name = load_ecg_data_from_dicom_dataset(dicom_dataset, 1)
+                    
+                    if ecg_signal is not None:
+                        title_map = {
+                            "LBBB": "Left Bundle Branch Block", 
+                            "1dAVB": "1st Degree AV Block",
+                            "AFIB": "Atrial Fibrillation", 
+                            "STACH": "Sinus Tachycardia"
+                        }
+                        title = f"{title_map.get(abn, abn)} ({instance_id})"
+                        report_data = visualization_func(ecg_signal, fs, title, lead_name, 
+                                                      web_output_dir)
                     else:
                         if verbose:
-                            print(f"Failed to load data for {instance_id}. Skipping.")
+                            print(f"Failed to extract ECG signal for {instance_id}. Skipping.")
                         results.append({
                             "status": "failed",
-                            "reason": "load_failed",
+                            "reason": "signal_extraction_failed",
                             "abnormality": abn,
                             "instance_id": instance_id,
                         })
@@ -318,10 +382,10 @@ def run_xai_tasks(
                         
                 except Exception as e:
                     if verbose:
-                        print(f"Failed to fetch DICOM data for {instance_id}: {e}")
+                        print(f"Failed to process {abn} for {instance_id}: {e}")
                     results.append({
                         "status": "failed",
-                        "reason": "dicom_fetch_failed",
+                        "reason": "processing_failed",
                         "abnormality": abn,
                         "instance_id": instance_id,
                         "error": str(e)

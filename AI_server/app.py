@@ -20,8 +20,10 @@ from fastapi.param_functions import Form
 from typing import List
 from info4xai import generate_feature_params_from_diagnosis
 from XAI.main import run_xai_tasks
+from fastapi.staticfiles import StaticFiles
 app = FastAPI()
-
+# mount static files
+app.mount("/static", StaticFiles(directory="XAI/static"), name="static")
 # load models when intialize
 from model_utils import load_models
 load_models()

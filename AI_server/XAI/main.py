@@ -113,28 +113,7 @@ def load_ecg_data_from_dicom_dataset(dicom_dataset, lead_index=1):
     返回: (ecg_signal, fs, lead_name)
     """
     try:
-        from .xai.ecg_utils import load_dicom_signals_from_dataset
-        
-        # 尝试使用新的DICOM数据集加载函数
-        if hasattr(load_dicom_signals_from_dataset, '__call__'):
-            signals = load_dicom_signals_from_dataset(dicom_dataset)
-            if signals and isinstance(lead_index, int) and lead_index < len(signals):
-                lead_names = list(signals.keys())
-                lead_name = lead_names[lead_index]
-                signal, fs = signals[lead_name]
-                return signal, fs, lead_name
-            elif signals and isinstance(lead_index, str):
-                # 如果lead_index是字符串，尝试匹配导联名称
-                for lead_name, (signal, fs) in signals.items():
-                    if lead_index.upper() in lead_name.upper():
-                        return signal, fs, lead_name
-                # 如果没找到匹配的，返回第一个
-                if signals:
-                    lead_name = list(signals.keys())[0]
-                    signal, fs = signals[lead_name]
-                    return signal, fs, lead_name
-        
-        # 备用方案：使用pydicom直接读取
+        # 直接使用pydicom读取DICOM数据
         if hasattr(dicom_dataset, 'WaveformSequence') and dicom_dataset.WaveformSequence:
             waveform = dicom_dataset.WaveformSequence[0]
             if hasattr(waveform, 'NumberOfWaveformChannels') and hasattr(waveform, 'NumberOfWaveformSamples'):
@@ -169,6 +148,29 @@ def load_ecg_data_from_dicom_dataset(dicom_dataset, lead_index=1):
                             fs = getattr(waveform, 'SamplingFrequency', 500)
                             lead_name = "Lead_1"
                             return signal, fs, lead_name
+        
+        # 如果上面的方法失败，尝试其他DICOM标签
+        if hasattr(dicom_dataset, 'NumberOfWaveformChannels') and hasattr(dicom_dataset, 'NumberOfWaveformSamples'):
+            num_channels = dicom_dataset.NumberOfWaveformChannels
+            num_samples = dicom_dataset.NumberOfWaveformSamples
+            
+            if hasattr(dicom_dataset, 'WaveformData'):
+                import numpy as np
+                raw_data = np.frombuffer(dicom_dataset.WaveformData, dtype=np.int16)
+                if raw_data.size >= num_channels * num_samples:
+                    data = raw_data[:num_channels * num_samples].reshape(num_samples, num_channels)
+                    
+                    if isinstance(lead_index, int) and lead_index < num_channels:
+                        signal = data[:, lead_index].astype(np.float64)
+                        fs = getattr(dicom_dataset, 'SamplingFrequency', 500)
+                        lead_name = f"Lead_{lead_index + 1}"
+                        return signal, fs, lead_name
+                    else:
+                        # 返回第一个导联
+                        signal = data[:, 0].astype(np.float64)
+                        fs = getattr(dicom_dataset, 'SamplingFrequency', 500)
+                        lead_name = "Lead_1"
+                        return signal, fs, lead_name
         
         print(f"Failed to extract ECG signal from DICOM dataset")
         return None, None, None

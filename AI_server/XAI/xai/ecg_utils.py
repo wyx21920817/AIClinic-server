@@ -222,6 +222,80 @@ def load_dicom_signal(filepath, lead_name_or_index):
         print(f"Error loading DICOM ECG from {filepath}: {e}")
         return None, None, None
 
+def load_dicom_signals_from_dataset(dicom_dataset):
+    """Load all ECG leads from a DICOM dataset object.
+
+    Returns a dict mapping lead names to (signal_mV, fs).
+    Lead names are resolved from ChannelSourceSequence.CodeMeaning when possible.
+    """
+    try:
+        if "WaveformSequence" not in dicom_dataset or not dicom_dataset.WaveformSequence:
+            raise ValueError("DICOM dataset does not contain WaveformSequence.")
+
+        wf = dicom_dataset.WaveformSequence[0]
+        fs = float(wf.SamplingFrequency)
+        num_channels = int(wf.NumberOfWaveformChannels)
+        num_samples = int(wf.NumberOfWaveformSamples)
+        channel_defs = wf.ChannelDefinitionSequence
+
+        # Lead names
+        lead_names = []
+        try:
+            lead_names = [ch.ChannelSourceSequence[0].CodeMeaning for ch in channel_defs]
+        except Exception:
+            std = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
+            lead_names = std[:num_channels] if num_channels <= len(std) else [f"Lead {i+1}" for i in range(num_channels)]
+
+        if not lead_names:
+            raise ValueError("Unable to resolve lead names from DICOM dataset.")
+
+        # Data type and demux
+        interp = getattr(wf, "WaveformSampleInterpretation", "SS").upper()
+        bits = int(getattr(wf, "WaveformBitsAllocated", 16))
+        little = getattr(dicom_dataset, "is_little_endian", True)
+        dtype_map = {
+            ("SS", 16): np.int16,
+            ("US", 16): np.uint16,
+            ("SB", 8): np.int8,
+            ("UB", 8): np.uint8,
+            ("SL", 32): np.int32,
+            ("UL", 32): np.uint32,
+            ("FD", 64): np.float64,
+            ("FL", 32): np.float32,
+        }
+        dtype = np.dtype(dtype_map.get((interp, bits), np.int16)).newbyteorder('<' if little else '>')
+
+        raw = np.frombuffer(wf.WaveformData, dtype=dtype)
+        if raw.size != num_channels * num_samples:
+            if raw.size % num_channels != 0:
+                raise ValueError(f"WaveformData size mismatch: {raw.size} vs channels*samples {num_channels*num_samples}")
+            num_samples = raw.size // num_channels
+        data = raw.reshape(num_samples, num_channels)
+
+        out = {}
+        for i in range(num_channels):
+            ch_def = channel_defs[i]
+            sens = float(getattr(ch_def, "ChannelSensitivity", 1.0))
+            corr = float(getattr(ch_def, "ChannelSensitivityCorrectionFactor", 1.0))
+            base = float(getattr(ch_def, "ChannelBaseline", 0.0))
+            units = None
+            try:
+                units = ch_def.ChannelSensitivityUnitsSequence[0].CodeValue
+            except Exception:
+                units = "uV"
+
+            sig = data[:, i].astype(np.float64)
+            sig_uv = (sig * sens * corr) + base
+            sig_mv = sig_uv / 1000.0 if isinstance(units, str) and units.lower().find('uv') != -1 else sig_uv / 1000.0
+            out[lead_names[i]] = (sig_mv, fs)
+
+        print(f"Loaded DICOM dataset with {len(out)} channels at {fs} Hz")
+        return out
+    except Exception as e:
+        print(f"Error loading DICOM ECG (multi-lead) from dataset: {e}")
+        return {}
+
+
 def load_dicom_signals(filepath):
     """Load all ECG leads from a DICOM waveform file.
 

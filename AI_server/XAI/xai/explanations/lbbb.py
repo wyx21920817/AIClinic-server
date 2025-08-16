@@ -282,7 +282,12 @@ def generate_lbbb_multilead(record_name=None, dicom_filepath=None, db_dir=None, 
     need = ["V1", "V2", "V5", "V6", "I", "aVL", "II", "aVF"]
     raw = {}
     try:
-        if dicom_filepath or (record_name and str(record_name).lower().endswith((".dcm", ".dicom"))):
+        if hasattr(dicom_filepath, 'WaveformSequence') and dicom_filepath.WaveformSequence:
+            # 如果传递的是DICOM数据集对象
+            from ..ecg_utils import load_dicom_signals_from_dataset
+            raw = load_dicom_signals_from_dataset(dicom_filepath)
+        elif dicom_filepath or (record_name and str(record_name).lower().endswith((".dcm", ".dicom"))):
+            # 如果传递的是文件路径
             raw = load_dicom_signals(dicom_filepath or record_name)
         else:
             raw = load_wfdb_signals(record_name, leads=need, db_dir=db_dir, allow_missing=True)

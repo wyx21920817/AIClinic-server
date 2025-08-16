@@ -18,7 +18,6 @@ from pydicom import dcmread # 确保导入 dcmread，可能在其他地方被使
 from ecg_ptbxl_benchmarking_master.extract_and_predict_ecg import process_and_predict 
 from fastapi.param_functions import Form
 from typing import List
-from info4xai import generate_feature_params_from_diagnosis
 from XAI.main import run_xai_tasks
 from fastapi.staticfiles import StaticFiles
 app = FastAPI()
@@ -195,30 +194,6 @@ async def diagnose_ecg(instance_id: str):
             "message": f"Successfully diagnosed ECG instance: {instance_id}"
         }
 
-        # 4. 自动保存诊断结果为本地json
-        save_dir = "./diagnose_logs"   # 你可以自定义保存目录
-        os.makedirs(save_dir, exist_ok=True)
-        save_path = os.path.join(save_dir, f"{instance_id}.json")
-        try:
-            with open(save_path, "w", encoding="utf-8") as f:
-                json.dump(output, f, indent=2, ensure_ascii=False)
-            logging.info(f"Diagnosis result saved to {save_path}")
-        except Exception as e:
-            logging.error(f"Failed to save diagnosis result: {e}")
-
-        dicom_dir = "./dicoms"
-        dicom_url = f"http://54.79.181.49:8042/instances/{instance_id}/file"
-        dicom_save_path = os.path.join(dicom_dir, f"{instance_id}.dcm")
-        try:
-            headers = {"Authorization": f"Bearer {token}"}
-            r = requests.get(dicom_url, headers=headers)
-            r.raise_for_status()  # 如果请求失败会抛出异常
-            with open(dicom_save_path, "wb") as f:
-                f.write(r.content)
-            logging.info(f"原始 DICOM 文件保存到 {dicom_save_path}")
-        except Exception as e:
-            logging.error(f"保存 DICOM 文件失败: {e}")
-        
         # 5. 返回API响应
         return output
 
@@ -242,50 +217,16 @@ async def interprete(
     logging.info(f"[interprete] instance_id={instance_id}, disease={disease}")
 
     try:
-        # 1) 确保 DICOM 本地可用（若不存在则自动获取保存）
-        dicom_dir = "./dicoms"
-        os.makedirs(dicom_dir, exist_ok=True)
-        dicom_path = os.path.join(dicom_dir, f"{instance_id}.dcm")
-
-        if not os.path.exists(dicom_path):
-            logging.debug(f"[interprete] DICOM not found locally, fetching: {dicom_path}")
-            token = await get_temp_token()
-            if not token:
-                raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
-
-            headers = get_headers(token)
-            dicom_url = f"{ORTHANC_URL}/instances/{instance_id}/file"
-
-            # 在异步环境中执行同步的 requests.get
-            r = await run_in_threadpool(requests.get, dicom_url, headers=headers)
-            r.raise_for_status()
-            with open(dicom_path, "wb") as f:
-                f.write(r.content)
-            logging.info(f"[interprete] DICOM saved to {dicom_path}")
-        else:
-            logging.debug(f"[interprete] DICOM already exists: {dicom_path}")
-
-        # 2) 先运行一次 generate_feature_params_from_diagnosis（遍历 diagnose_logs 与 dicoms）
-        #    该函数会打印每条 json 对应的新功能参数（并检查 DICOM 是否存在）
-        diagnose_dir = "./diagnose_logs"
-        try:
-            await run_in_threadpool(
-                generate_feature_params_from_diagnosis,
-                diagnose_dir,
-                dicom_dir,
-                1,          # lead_index
-                dicom_dir,  # db_dir
-            )
-        except Exception as e:
-            # 不影响主流程，但记录日志（防止因为 diagnose_logs 为空或其他小问题阻断 XAI）
-            logging.warning(f"[interprete] generate_feature_params_from_diagnosis warning: {e}")
-
         # 3) 调用 XAI 主流程
+        token = await get_temp_token()
+        if not token:
+            raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
         abnormalities = disease  # run_xai_tasks 支持 str 或 list[str]，这里直接传列表
         xai_out = await run_in_threadpool(
             run_xai_tasks,
             abnormalities,        # abnormalities
             instance_id,          # instance_id
+            token,
             True,                 # return_reports
             True,                 # verbose
         )

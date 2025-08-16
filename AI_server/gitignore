@@ -45,7 +45,5 @@ logs/
 uploads/
 dicom_files/
 temp/
-*.dcm
 ecg-image-kit/codes/ecg-image-generator/
-diagnose_logs
-dicoms
+

@@ -314,13 +314,28 @@ def run_xai_tasks(
                 if web_accessible and report_data.get("image_paths"):
                     # 将image_paths转换为API格式的URL
                     api_image_paths = {}
-                    for img_name, img_path in report_data["image_paths"].items():
-                        if os.path.exists(img_path):
-                            # 生成API下载URL
-                            api_url = get_api_download_url(img_name, instance_id)
-                            api_image_paths[img_name] = api_url
-                            if verbose:
-                                print(f"Generated API URL for {img_name}: {api_url}")
+                    
+                    # 处理不同格式的image_paths
+                    if isinstance(report_data["image_paths"], dict):
+                        # 如果image_paths是字典格式
+                        for img_name, img_path in report_data["image_paths"].items():
+                            if os.path.exists(img_path):
+                                # 生成API下载URL
+                                api_url = get_api_download_url(img_name, instance_id)
+                                api_image_paths[img_name] = api_url
+                                if verbose:
+                                    print(f"Generated API URL for {img_name}: {api_url}")
+                    elif isinstance(report_data["image_paths"], list):
+                        # 如果image_paths是列表格式
+                        for img_filename in report_data["image_paths"]:
+                            # 构建完整的文件路径
+                            img_path = os.path.join(web_output_dir, img_filename)
+                            if os.path.exists(img_path):
+                                # 生成API下载URL
+                                api_url = get_api_download_url(img_filename, instance_id)
+                                api_image_paths[img_filename] = api_url
+                                if verbose:
+                                    print(f"Generated API URL for {img_filename}: {api_url}")
                     
                     # 更新report_data中的image_paths
                     report_data["image_paths"] = api_image_paths

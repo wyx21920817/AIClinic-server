@@ -15,7 +15,7 @@ def get_api_download_url(filename, instance_id):
     base_url = os.getenv("BASE_URL", "")
     return f"{base_url}/static/images/{instance_id}/{filename}"
 
-# try to import XAI modules
+# try to import XAI modules and dicom_utils
 try:
     from .xai.ecg_utils import load_ecg_data
     from .xai.explanations.validators import (
@@ -28,6 +28,12 @@ try:
     from .xai.explanations.lbbb import generate_lbbb_visuals
     from .xai.explanations.rbbb import generate_rbbb_visuals
     from .xai.explanations.avb import generate_avb_visuals
+    
+    # 导入dicom_utils
+    try:
+        from ..dicom_utils import get_instance_dicom
+    except ImportError:
+        from dicom_utils import get_instance_dicom
 except ImportError:
     try:
         from xai.ecg_utils import load_ecg_data
@@ -105,6 +111,7 @@ VISUALIZATION_DISPATCHER = {
 def run_xai_tasks(
     abnormalities,
     instance_id: str,
+    token: str = None,  # 新增token参数
     return_reports: bool = True,
     verbose: bool = True,
     web_accessible: bool = None,
@@ -115,18 +122,23 @@ def run_xai_tasks(
     Parameters:
     - abnormalities: str | list[str] — e.g., 'AFIB' or ['AFIB','1dAVB']
     - instance_id: str — unified identifier
+    - token: str — authentication token for DICOM server access
     - return_reports: include full report JSON in return payload
     - verbose: print progress logs
     - web_accessible: if True, generate API download URLs for images
 
     Behavior:
-    - Non-RBBB tasks assume DICOM under AI_server/dicoms
-    - RBBB tasks assume WFDB under XAI/data/ecg_files
-    - Images are saved to local output directory and API URLs are generated
+    - All tasks now fetch DICOM data directly from server using token
+    - No more local DICOM file dependency
+    - Images are saved to web-accessible directory and API URLs are generated
 
     Returns:
     - { "results": [...] } with API download URLs for image access
     """
+    # 验证token
+    if not token:
+        raise ValueError("token is required for DICOM access")
+    
     # 简化web处理逻辑
     if web_accessible is None:
         web_accessible = True  # 默认启用API URL生成
@@ -175,109 +187,144 @@ def run_xai_tasks(
             # handle different types of abnormalities
             if abn == "RBBB" or abn == "LBBB":
                 # LBBB and RBBB need four leads for analysis: V1, V2, V6, I
-                # support both DICOM and WFDB data sources
-                dicom_filepath = None
-                if os.path.exists(default_dicom_dir):
-                    # try DICOM file
-                    dicom_filepath = os.path.join(default_dicom_dir, f"{instance_id}.dcm")
-                    if not os.path.exists(dicom_filepath):
-                        # if DICOM does not exist, try WFDB
-                        dicom_filepath = None
-                
-                task_config = {
-                    "abnormality": abn,
-                    "instance_id": instance_id,
-                    "lead_index": ["V1", "V2", "V6", "I"],  # 四个导联
-                    "db_dir": default_db_dir,
-                    "dicom_dir": default_dicom_dir,
-                }
-                
-                if abn == "RBBB":
-                    # RBBB can directly process file paths
-                    # note: RBBB function internally handles lead name matching
-                    # but need to ensure DICOM file path is correctly passed
-                    if dicom_filepath and os.path.exists(dicom_filepath):
+                # 直接从服务器获取DICOM数据
+                try:
+                    if verbose:
+                        print(f"Fetching DICOM data from server for {instance_id}")
+                    
+                    # 使用token从服务器获取DICOM
+                    dicom_dataset = get_instance_dicom(instance_id, token)
+                    if verbose:
+                        print(f"Successfully retrieved DICOM data for {instance_id}")
+                    
+                    # 构建任务配置
+                    task_config = {
+                        "abnormality": abn,
+                        "instance_id": instance_id,
+                        "lead_index": ["V1", "V2", "V6", "I"],  # 四个导联
+                        "db_dir": default_db_dir,
+                        "dicom_dataset": dicom_dataset,  # 传递DICOM数据集
+                    }
+                    
+                    if abn == "RBBB":
+                        # RBBB处理
                         report_data = visualization_func(
                             record_name=instance_id,
-                            dicom_filepath=dicom_filepath,
+                            dicom_dataset=dicom_dataset,  # 传递DICOM数据集
                             db_dir=default_db_dir,
                             output_dir=web_output_dir,
                         )
-                    else:
-                        # if DICOM file does not exist, try WFDB
-                        report_data = visualization_func(
-                            record_name=instance_id,
-                            dicom_filepath=None,
-                            db_dir=default_db_dir,
-                            output_dir=web_output_dir,
-                        )
-                else:  # LBBB
-                    # LBBB uses multi-lead analysis, directly call multi-lead function
-                    # import multi-lead function
-                    try:
-                        from .xai.explanations.lbbb import generate_lbbb_multilead
-                    except ImportError:
+                    else:  # LBBB
+                        # LBBB使用多导联分析
                         try:
-                            from xai.explanations.lbbb import generate_lbbb_multilead
+                            from .xai.explanations.lbbb import generate_lbbb_multilead
                         except ImportError:
+                            try:
+                                from xai.explanations.lbbb import generate_lbbb_multilead
+                            except ImportError:
+                                if verbose:
+                                    print(f"Failed to import LBBB multi-lead function for {instance_id}. Skipping.")
+                                results.append({
+                                    "status": "failed",
+                                    "reason": "import_failed",
+                                    "abnormality": abn,
+                                    "instance_id": instance_id,
+                                })
+                                continue
+                        
+                        # 调用多导联LBBB分析函数
+                        report_data = generate_lbbb_multilead(
+                            record_name=instance_id,
+                            dicom_dataset=dicom_dataset,  # 传递DICOM数据集
+                            db_dir=default_db_dir,
+                            output_dir=web_output_dir
+                        )
+                        
+                        if not report_data:
                             if verbose:
-                                print(f"Failed to import LBBB multi-lead function for {instance_id}. Skipping.")
+                                print(f"Failed to generate LBBB analysis for {instance_id}. Skipping.")
                             results.append({
                                 "status": "failed",
-                                "reason": "import_failed",
+                                "reason": "generate_failed",
                                 "abnormality": abn,
                                 "instance_id": instance_id,
                             })
                             continue
+                            
+                except Exception as e:
+                    if verbose:
+                        print(f"Failed to fetch DICOM data for {instance_id}: {e}")
+                    results.append({
+                        "status": "failed",
+                        "reason": "dicom_fetch_failed",
+                        "abnormality": abn,
+                        "instance_id": instance_id,
+                        "error": str(e)
+                    })
+                    continue
+            else:
+                # 其他异常类型：直接从服务器获取DICOM数据
+                try:
+                    if verbose:
+                        print(f"Fetching DICOM data from server for {instance_id}")
                     
-                    # call multi-lead LBBB analysis function
-                    report_data = generate_lbbb_multilead(
-                        record_name=instance_id,
-                        dicom_filepath=dicom_filepath,
-                        db_dir=default_db_dir,
-                        output_dir=web_output_dir
-                    )
+                    # 使用token从服务器获取DICOM
+                    dicom_dataset = get_instance_dicom(instance_id, token)
+                    if verbose:
+                        print(f"Successfully retrieved DICOM data for {instance_id}")
                     
-                    if not report_data:
+                    # 构建任务配置
+                    task_config = {
+                        "abnormality": abn,
+                        "instance_id": instance_id,
+                        "lead_index": 1,
+                        "dicom_dataset": dicom_dataset,  # 传递DICOM数据集
+                    }
+                    
+                    # 使用load_ecg_data处理DICOM数据集
+                    data = load_ecg_data(task_config)
+                    if isinstance(data, tuple) and len(data) == 3:
+                        ecg_signal, fs, lead_name = data
+                        if ecg_signal is not None:
+                            title_map = {
+                                "LBBB": "Left Bundle Branch Block", 
+                                "1dAVB": "1st Degree AV Block",
+                                "AFIB": "Atrial Fibrillation", 
+                                "STACH": "Sinus Tachycardia"
+                            }
+                            title = f"{title_map.get(abn, abn)} ({instance_id})"
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, 
+                                                          web_output_dir)
+                        else:
+                            if verbose:
+                                print(f"Failed to extract ECG signal for {instance_id}. Skipping.")
+                            results.append({
+                                "status": "failed",
+                                "reason": "signal_extraction_failed",
+                                "abnormality": abn,
+                                "instance_id": instance_id,
+                            })
+                            continue
+                    else:
                         if verbose:
-                            print(f"Failed to generate LBBB analysis for {instance_id}. Skipping.")
+                            print(f"Failed to load data for {instance_id}. Skipping.")
                         results.append({
                             "status": "failed",
-                            "reason": "generate_failed",
+                            "reason": "load_failed",
                             "abnormality": abn,
                             "instance_id": instance_id,
                         })
                         continue
-            else:
-                # build task configuration
-                task_config = {
-                    "abnormality": abn,
-                    "instance_id": instance_id,
-                    "lead_index": 1,
-                    "dicom_dir": default_dicom_dir,
-                }
-                
-                data = load_ecg_data(task_config)
-                if isinstance(data, tuple) and len(data) == 3:
-                    ecg_signal, fs, lead_name = data
-                    if ecg_signal is not None:
-                        title_map = {
-                            "LBBB": "Left Bundle Branch Block", 
-                            "1dAVB": "1st Degree AV Block",
-                            "AFIB": "Atrial Fibrillation", 
-                            "STACH": "Sinus Tachycardia"
-                        }
-                        title = f"{title_map.get(abn, abn)} ({instance_id})"
-                        report_data = visualization_func(ecg_signal, fs, title, lead_name, 
-                                                      web_output_dir)
-                else:
+                        
+                except Exception as e:
                     if verbose:
-                        print(f"Failed to load data for {instance_id}. Skipping.")
+                        print(f"Failed to fetch DICOM data for {instance_id}: {e}")
                     results.append({
                         "status": "failed",
-                        "reason": "load_failed",
+                        "reason": "dicom_fetch_failed",
                         "abnormality": abn,
                         "instance_id": instance_id,
+                        "error": str(e)
                     })
                     continue
 

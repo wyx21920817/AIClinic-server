@@ -378,7 +378,7 @@ def load_ecg_data(config_task):
     - {lead_name: (signal, fs), ...} for multi-lead workflows when 'require_multi_lead' is truthy.
 
     Supported fields (by priority):
-    - instance_id：
+    - instance_id:
         * If path ends with .dcm/.dicom, treat as DICOM absolute/relative path
         * If dicom_dir is provided, try dicom_dir/<instance_id>.dcm
         * Otherwise, use as WFDB record name (combined with db_dir)

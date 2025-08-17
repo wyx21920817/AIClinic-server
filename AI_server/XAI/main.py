@@ -3,98 +3,29 @@
 import json
 import os
 import time
+
+from .xai.ecg_utils import load_dicom_signals_from_dataset
+from .xai.explanations.validators import (
+    validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr
+)
+from .xai.explanations.normal import generate_normal_visuals
+from .xai.explanations.sb import generate_sb_visuals
+from .xai.explanations.af import generate_af_visuals
+from .xai.explanations.st import generate_st_visuals
+from .xai.explanations.lbbb import generate_lbbb_visuals
+from .xai.explanations.rbbb import generate_rbbb_visuals
+from .xai.explanations.avb import generate_avb_visuals
+
+from dicom_utils import get_instance_dicom
+
 from dotenv import load_dotenv
-
-
 load_dotenv()
-
-
 # api url for images
 def get_api_download_url(filename, instance_id):
     """generate api url for images"""
     base_url = os.getenv("BASE_URL", "")
     return f"{base_url}/static/images/{instance_id}/{filename}"
 
-# try to import XAI modules and dicom_utils
-try:
-    from .xai.ecg_utils import load_dicom_signals_from_dataset
-    from .xai.explanations.validators import (
-        validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr
-    )
-    from .xai.explanations.normal import generate_normal_visuals
-    from .xai.explanations.sb import generate_sb_visuals
-    from .xai.explanations.af import generate_af_visuals
-    from .xai.explanations.st import generate_st_visuals
-    from .xai.explanations.lbbb import generate_lbbb_visuals
-    from .xai.explanations.rbbb import generate_rbbb_visuals
-    from .xai.explanations.avb import generate_avb_visuals
-    
-    # 导入dicom_utils
-    try:
-        from ..dicom_utils import get_instance_dicom
-    except ImportError:
-        from dicom_utils import get_instance_dicom
-except ImportError:
-    try:
-        from xai.ecg_utils import load_ecg_data
-        from xai.explanations.validators import (
-            validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr
-        )
-        from xai.explanations.normal import generate_normal_visuals
-        from xai.explanations.sb import generate_sb_visuals
-        from xai.explanations.af import generate_af_visuals
-        from xai.explanations.st import generate_st_visuals
-        from xai.explanations.lbbb import generate_lbbb_visuals
-        from xai.explanations.rbbb import generate_rbbb_visuals
-        from xai.explanations.avb import generate_avb_visuals
-    except ImportError:
-        # if all imports fail, create placeholder functions
-        print("Warning: XAI modules not available, creating placeholder functions")
-        
-        def load_ecg_data(config_task):
-            return None, None, None
-        
-        def validate_af(metrics):
-            return {"status": "placeholder", "reasons": ["XAI modules not available"]}
-        
-        def validate_st(metrics):
-            return {"status": "placeholder", "reasons": ["XAI modules not available"]}
-        
-        def validate_sb(metrics):
-            return {"status": "placeholder", "reasons": ["XAI modules not available"]}
-        
-        def validate_avb1(metrics):
-            return {"status": "placeholder", "reasons": ["XAI modules not available"]}
-        
-        def validate_lbbb(metrics):
-            return {"status": "placeholder", "reasons": ["XAI modules not available"]}
-        
-        def validate_rbbb(metrics):
-            return {"status": "placeholder", "reasons": ["XAI modules not available"]}
-        
-        def validate_nr(metrics):
-            return {"status": "placeholder", "reasons": ["XAI modules not available"]}
-        
-        def generate_normal_visuals(ecg_signal, fs, title, lead_name, output_dir):
-            return {"image_paths": {"placeholder.png": os.path.join(output_dir, "placeholder.png")}}
-        
-        def generate_sb_visuals(ecg_signal, fs, title, lead_name, output_dir):
-            return {"image_paths": {"placeholder.png": os.path.join(output_dir, "placeholder.png")}}
-        
-        def generate_af_visuals(ecg_signal, fs, title, lead_name, output_dir):
-            return {"image_paths": {"placeholder.png": os.path.join(output_dir, "placeholder.png")}}
-        
-        def generate_st_visuals(ecg_signal, fs, title, lead_name, output_dir):
-            return {"image_paths": {"placeholder.png": os.path.join(output_dir, "placeholder.png")}}
-        
-        def generate_lbbb_visuals(ecg_signal, fs, title, lead_name, output_dir):
-            return {"image_paths": {"placeholder.png": os.path.join(output_dir, "placeholder.png")}}
-        
-        def generate_rbbb_visuals(record_name, dicom_filepath, db_dir, output_dir):
-            return {"image_paths": {"placeholder.png": os.path.join(output_dir, "placeholder.png")}}
-        
-        def generate_avb_visuals(ecg_signal, fs, title, lead_name, output_dir):
-            return {"image_paths": {"placeholder.png": os.path.join(output_dir, "placeholder.png")}}
 
 VISUALIZATION_DISPATCHER = {
     "AFIB": generate_af_visuals,
@@ -110,7 +41,7 @@ VISUALIZATION_DISPATCHER = {
 def run_xai_tasks(
     abnormalities,
     instance_id: str,
-    token: str = None,  # 新增token参数
+    token: str = None,  
     return_reports: bool = True,
     verbose: bool = True,
     web_accessible: bool = None,
@@ -134,13 +65,13 @@ def run_xai_tasks(
     Returns:
     - { "results": [...] } with API download URLs for image access
     """
-    # 验证token
+    # verify token
     if not token:
         raise ValueError("token is required for DICOM access")
     
-    # 简化web处理逻辑
+    # simplify web processing logic
     if web_accessible is None:
-        web_accessible = True  # 默认启用API URL生成
+        web_accessible = True  # default enable API URL generation
     
     if verbose:
         if web_accessible:
@@ -162,7 +93,7 @@ def run_xai_tasks(
 
         start_time = time.perf_counter()
         
-        # 创建web可访问的输出目录
+        # create web accessible output directory
         web_output_dir = os.path.join(os.path.dirname(__file__), "static", "images", instance_id)
         if not os.path.exists(web_output_dir):
             os.makedirs(web_output_dir)
@@ -183,12 +114,12 @@ def run_xai_tasks(
         error = None
 
         try:
-            # 首先从服务器获取DICOM数据（所有异常类型都需要）
+            # first get DICOM data from server (all abnormalities need)
             try:
                 if verbose:
                     print(f"Fetching DICOM data from server for {instance_id}")
                 
-                # 使用token从服务器获取DICOM
+                # use token to get DICOM data from server
                 dicom_dataset = get_instance_dicom(instance_id, token)
                 if verbose:
                     print(f"Successfully retrieved DICOM data for {instance_id}")
@@ -209,25 +140,25 @@ def run_xai_tasks(
             if abn == "RBBB" or abn == "LBBB":
                 # LBBB and RBBB need four leads for analysis: V1, V2, V6, I
                 try:
-                    # 构建任务配置
+                    # build task configuration
                     task_config = {
                         "abnormality": abn,
                         "instance_id": instance_id,
-                        "lead_index": ["V1", "V2", "V6", "I"],  # 四个导联
+                        "lead_index": ["V1", "V2", "V6", "I"],  # four leads
                         "db_dir": default_db_dir,
-                        "dicom_dataset": dicom_dataset,  # 传递DICOM数据集
+                        "dicom_dataset": dicom_dataset,  # pass DICOM dataset
                     }
                     
                     if abn == "RBBB":
-                        # RBBB处理 - 传递dicom_dataset作为dicom_filepath参数
+                        # RBBB processing - pass dicom_dataset as dicom_filepath parameter
                         report_data = visualization_func(
                             record_name=instance_id,
-                            dicom_filepath=dicom_dataset,  # 修复：传递dicom_dataset
+                            dicom_filepath=dicom_dataset,  # fix: pass DICOM dataset
                             db_dir=default_db_dir,
                             output_dir=web_output_dir,
                         )
                     else:  # LBBB
-                        # LBBB使用多导联分析
+                        # LBBB use multi-lead analysis
                         try:
                             from .xai.explanations.lbbb import generate_lbbb_multilead
                         except ImportError:
@@ -244,10 +175,10 @@ def run_xai_tasks(
                                 })
                                 continue
                         
-                        # 调用多导联LBBB分析函数 - 修复：传递dicom_dataset作为dicom_filepath
+                        # call multi-lead LBBB analysis function - fix: pass DICOM dataset as dicom_filepath
                         report_data = generate_lbbb_multilead(
                             record_name=instance_id,
-                            dicom_filepath=dicom_dataset,  # 修复：传递dicom_dataset
+                            dicom_filepath=dicom_dataset,  # fix: pass DICOM dataset
                             db_dir=default_db_dir,
                             output_dir=web_output_dir
                         )
@@ -275,21 +206,21 @@ def run_xai_tasks(
                     })
                     continue
             else:
-                # 其他异常类型：直接从DICOM数据集加载ECG数据
+                # other abnormalities: load ECG data directly from DICOM dataset
                 try:
-                    # 构建任务配置
+                    # build task configuration
                     task_config = {
                         "abnormality": abn,
                         "instance_id": instance_id,
                         "lead_index": 1,
-                        "dicom_dataset": dicom_dataset,  # 传递DICOM数据集
+                        "dicom_dataset": dicom_dataset,  # pass DICOM dataset
                     }
                     
-                    # 使用新的函数直接从DICOM数据集加载ECG数据
+                    # use new function to load ECG data directly from DICOM dataset
                     leads_data = load_dicom_signals_from_dataset(dicom_dataset)
                     
                     if leads_data and len(leads_data) > 0:
-                        # 获取第一个可用的导联数据
+                        # get first available lead data
                         lead_name = list(leads_data.keys())[0]
                         ecg_signal, fs = leads_data[lead_name]
                         
@@ -365,34 +296,34 @@ def run_xai_tasks(
                 
                 report_data['processing_time_seconds'] = round(duration, 2)
                 
-                # 生成API格式的图片URL
+                # generate API format image URL
                 if web_accessible and report_data.get("image_paths"):
-                    # 将image_paths转换为API格式的URL
+                    # convert image_paths to API format URL
                     api_image_paths = {}
                     
-                    # 处理不同格式的image_paths
+                    # process different format of image_paths
                     if isinstance(report_data["image_paths"], dict):
-                        # 如果image_paths是字典格式
+                        # if image_paths is dictionary format
                         for img_name, img_path in report_data["image_paths"].items():
                             if os.path.exists(img_path):
-                                # 生成API下载URL
+                                # generate API download URL
                                 api_url = get_api_download_url(img_name, instance_id)
                                 api_image_paths[img_name] = api_url
                                 if verbose:
                                     print(f"Generated API URL for {img_name}: {api_url}")
                     elif isinstance(report_data["image_paths"], list):
-                        # 如果image_paths是列表格式
+                        # if image_paths is list format
                         for img_filename in report_data["image_paths"]:
-                            # 构建完整的文件路径
+                            # build full file path
                             img_path = os.path.join(web_output_dir, img_filename)
                             if os.path.exists(img_path):
-                                # 生成API下载URL
+                                # generate API download URL
                                 api_url = get_api_download_url(img_filename, instance_id)
                                 api_image_paths[img_filename] = api_url
                                 if verbose:
                                     print(f"Generated API URL for {img_filename}: {api_url}")
                     
-                    # 更新report_data中的image_paths
+                    # update image_paths in report_data
                     report_data["image_paths"] = api_image_paths
                     
                     if verbose:
@@ -437,9 +368,9 @@ def main(config_path):
     tasks = config.get("tasks", [])
     web_accessible = config.get("web_accessible", None)  # None means use default from config
 
-    # Backward-compatible JSON entrypoint uses simplified API
+    # backward-compatible JSON entrypoint uses simplified API
     out = run_xai_tasks(tasks, output_dir=output_dir, return_reports=False, verbose=True, web_accessible=web_accessible)
-    # Print a minimal summary to stdout for CLI usage
+    # print a minimal summary to stdout for CLI usage
     print(json.dumps({"results": out.get("results", [])}, ensure_ascii=False))
     
 if __name__ == "__main__":

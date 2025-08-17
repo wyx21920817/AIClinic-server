@@ -13,5 +13,7 @@ __pycache__
 **/*.fdb_latexmk
 **/*.hea
 **/*.dat
+**/*.pyc
+.venv/*
 
 .ipynb_checkpoints

@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 # 修复导入路径问题 - 在文件开头设置
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
-
+#1
 # 修复相对导入问题
 try:
     from .classify_single_ecg_ft import load_model, preprocess_signal, set_seed

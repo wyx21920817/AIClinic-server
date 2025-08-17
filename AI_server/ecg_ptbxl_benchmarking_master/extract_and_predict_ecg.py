@@ -157,7 +157,7 @@ def get_disease_mapping():
         'AFIB': 'AFIB',
         'AFLT': 'AFLT',
         
-        # Bundle Branch Block cases - 合并 ILBBB 和 CLBBB 到 LBBB
+        # Bundle Branch Block cases - Merge ILBBB and CLBBB into LBBB
         'LBBB': 'LBBB',
         'ILBBB': 'LBBB',  # Incomplete LBBB -> LBBB
         'CLBBB': 'LBBB',  # Complete LBBB -> LBBB
@@ -169,17 +169,18 @@ def get_disease_mapping():
         
         # Sinus Tachycardia
         'STACH': 'STACH',
-        'SINUS TACHYCARDIA': 'STACH',
+        'SVTAC': 'STACH',     # Supraventricular tachycardia -> STACH
+        'PSVT': 'STACH',      # Paroxysmal SVT -> STACH
         
         # Premature Atrial Complex/Contraction
         'PAC': 'PAC',
-        'APB': 'PAC',     # Atrial Premature Beat -> PAC
-        'APC': 'PAC',     # Atrial Premature Complex -> PAC
+        'PRC(S)': 'PAC',      # Premature complex(es) -> PAC
+        'BIGU': 'PAC',        # Bigeminal pattern -> PAC 
+        'TRIGU': 'PAC',       # Trigeminal pattern -> PAC 
         
         # Premature Ventricular Complex/Contraction  
         'PVC': 'PVC',
-        'VPB': 'PVC',     # Ventricular Premature Beat -> PVC
-        'VPC': 'PVC',     # Ventricular Premature Complex -> PVC
+
     }
     return mapping
 

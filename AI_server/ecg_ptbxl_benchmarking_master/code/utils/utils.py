@@ -440,3 +440,70 @@ def ICBEBE_table(selection=None, folder='../output/'):
     for i, row in enumerate(df_rest[cols].values):
         md_source += '| ' + df_rest.index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
     print(md_source)
+
+def set_seed(seed=42):
+    """设置随机种子以确保结果可重现"""
+    import random
+    import numpy as np
+    import torch
+    
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    print(f"✅ Random seed set to: {seed}")
+
+
+class EarlyStopping:
+    """早停机制，防止过拟合"""
+    
+    def __init__(self, patience=10, min_delta=0.001, restore_best_weights=True):
+        """
+        Args:
+            patience: 容忍多少个epoch没有改善
+            min_delta: 最小改善阈值
+            restore_best_weights: 是否恢复最佳权重
+        """
+        self.patience = patience
+        self.min_delta = min_delta
+        self.restore_best_weights = restore_best_weights
+        self.best_loss = float('inf')
+        self.counter = 0
+        self.best_weights = None
+        
+    def __call__(self, val_loss, model):
+        """
+        检查是否应该早停
+        
+        Args:
+            val_loss: 验证损失
+            model: 模型对象
+            
+        Returns:
+            bool: True表示应该停止训练
+        """
+        if val_loss < self.best_loss - self.min_delta:
+            self.best_loss = val_loss
+            self.counter = 0
+            if self.restore_best_weights:
+                self.best_weights = model.state_dict().copy()
+            return False
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                if self.restore_best_weights and self.best_weights is not None:
+                    model.load_state_dict(self.best_weights)
+                return True
+            return False
+    
+    def get_info(self):
+        """获取早停状态信息"""
+        return {
+            'best_loss': self.best_loss,
+            'counter': self.counter,
+            'patience': self.patience
+        }

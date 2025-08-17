@@ -17,6 +17,8 @@ torch==2.6.0
 tqdm==4.67.1
 wfdb==4.3.0
 protobuf==3.20.0
+seaborn
+
 #requirements for XAI
 wfdb>=4.0.0
 neurokit2>=0.2.0

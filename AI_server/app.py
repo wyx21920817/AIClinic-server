@@ -16,8 +16,13 @@ from preprocess import extract_waveform # add_predictions_to_dicom is no longer 
 from model_utils import load_model, predict_ecg
 from pydicom import dcmread # 确保导入 dcmread，可能在其他地方被使用
 from ecg_ptbxl_benchmarking_master.extract_and_predict_ecg import process_and_predict 
+from fastapi.param_functions import Form
+from typing import List
+from XAI.main import run_xai_tasks
+from fastapi.staticfiles import StaticFiles
 app = FastAPI()
-
+# mount static files
+app.mount("/static", StaticFiles(directory="XAI/static"), name="static")
 # load models when intialize
 from model_utils import load_models
 load_models()
@@ -189,30 +194,6 @@ async def diagnose_ecg(instance_id: str):
             "message": f"Successfully diagnosed ECG instance: {instance_id}"
         }
 
-        # 4. 自动保存诊断结果为本地json
-        save_dir = "./diagnose_logs"   # 你可以自定义保存目录
-        os.makedirs(save_dir, exist_ok=True)
-        save_path = os.path.join(save_dir, f"{instance_id}.json")
-        try:
-            with open(save_path, "w", encoding="utf-8") as f:
-                json.dump(output, f, indent=2, ensure_ascii=False)
-            logging.info(f"Diagnosis result saved to {save_path}")
-        except Exception as e:
-            logging.error(f"Failed to save diagnosis result: {e}")
-
-        dicom_dir = "./dicoms"
-        dicom_url = f"http://54.79.181.49:8042/instances/{instance_id}/file"
-        dicom_save_path = os.path.join(dicom_dir, f"{instance_id}.dcm")
-        try:
-            headers = {"Authorization": f"Bearer {token}"}
-            r = requests.get(dicom_url, headers=headers)
-            r.raise_for_status()  # 如果请求失败会抛出异常
-            with open(dicom_save_path, "wb") as f:
-                f.write(r.content)
-            logging.info(f"原始 DICOM 文件保存到 {dicom_save_path}")
-        except Exception as e:
-            logging.error(f"保存 DICOM 文件失败: {e}")
-        
         # 5. 返回API响应
         return output
 
@@ -221,3 +202,52 @@ async def diagnose_ecg(instance_id: str):
     except Exception as e:
         logging.error(f"Diagnostic failure,Instance ID: {instance_id}, error: {e}")
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(e)}")
+
+@app.post("/interprete/{instance_id}")
+async def interprete(
+    instance_id: str,
+    disease: List[str] = Form(...),  # 前端以 form-data 方式多次传 disease 字段
+):
+    """
+    XAI 解释接口：
+    - 确保本地 dicoms 下存在对应的 DICOM 文件（若无则自动获取并保存）
+    - 运行一次 generate_feature_params_from_diagnosis（按你的要求）
+    - 调用 run_xai_tasks(abnormalities=disease, instance_id=instance_id)
+    """
+    logging.info(f"[interprete] instance_id={instance_id}, disease={disease}")
+
+    try:
+        # 3) 调用 XAI 主流程
+        token = await get_temp_token()
+        if not token:
+            raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
+        abnormalities = disease  # run_xai_tasks 支持 str 或 list[str]，这里直接传列表
+        xai_out = await run_in_threadpool(
+            run_xai_tasks,
+            abnormalities,        # abnormalities
+            instance_id,          # instance_id
+            token,
+            True,                 # return_reports
+            True,                 # verbose
+        )
+
+        return {
+            "instance_id": instance_id,
+            "abnormalities": abnormalities,
+            "status": "success",
+            "results": xai_out.get("results", []),
+            "message": "XAI interpretation completed.",
+        }
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"[interprete] Requests error: {e}")
+        if getattr(e, "response", None) is not None:
+            raise HTTPException(status_code=e.response.status_code,
+                                detail=f"Failed to fetch DICOM file: {e.response.text}")
+        else:
+            raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"[interprete] Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=f"Interpretation failed: {e}")

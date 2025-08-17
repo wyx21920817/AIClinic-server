@@ -1,0 +1,27 @@
+{
+    "title": "NR (19005_hr)",
+    "lead_name": "II",
+    "report_text": "Normal ECG overview for NR (19005_hr) (II).\n- Expected features: regular rhythm, HR 60–100 bpm, narrow QRS (0.06–0.11 s).\n- RR histogram shows normal band shading (0.6–1.0 s).",
+    "metrics": {
+        "average_heart_rate_bpm": 65.45930613135502,
+        "rr_mean_s": 0.9165999999999999,
+        "rr_std_s": 0.04555480216179188,
+        "rr_cv": 0.04969976234103413
+    },
+    "image_paths": [
+        "normal_ecg_overview.png",
+        "normal_rr_histogram.png"
+    ],
+    "validation": {
+        "status": "pass",
+        "reasons": [
+            "HR 60–100",
+            "rr_cv 0.05<0.08"
+        ],
+        "metrics_used": {
+            "avg_hr": 65.45930613135502,
+            "rr_cv": 0.04969976234103413
+        }
+    },
+    "processing_time_seconds": 0.66
+}

@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 # 修复导入路径问题 - 在文件开头设置
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
-
+#1
 # 修复相对导入问题
 try:
     from .classify_single_ecg_ft import load_model, preprocess_signal, set_seed
@@ -132,6 +132,105 @@ except ImportError:
                 scaled = scaler.transform(flat).reshape(sig.shape)
             return scaled, scaler
 
+# 定义老师感兴趣的疾病类别映射
+def get_disease_mapping():
+    """
+    返回疾病映射字典，将71种疾病分类映射到老师感兴趣的10种疾病类别
+    
+    返回:
+        dict: {original_disease: target_category}
+    """
+    mapping = {
+        # Normal cases
+        'NORM': 'NORM',
+        
+        # AV Block cases
+        '1AVB': '1dAVB',
+        '2AVB': '2dAVB', 
+        '3AVB': '3dAVB',
+        # Also support with 'd' for backward compatibility
+        '1dAVB': '1dAVB',
+        '2dAVB': '2dAVB', 
+        '3dAVB': '3dAVB',
+        
+        # Atrial Fibrillation/Flutter
+        'AFIB': 'AFIB',
+        'AFLT': 'AFLT',
+        
+        # Bundle Branch Block cases - 合并 ILBBB 和 CLBBB 到 LBBB
+        'LBBB': 'LBBB',
+        'ILBBB': 'LBBB',  # Incomplete LBBB -> LBBB
+        'CLBBB': 'LBBB',  # Complete LBBB -> LBBB
+        
+        # Right Bundle Branch Block
+        'RBBB': 'RBBB',
+        'IRBBB': 'RBBB',  # Incomplete RBBB -> RBBB
+        'CRBBB': 'RBBB',  # Complete RBBB -> RBBB
+        
+        # Sinus Tachycardia
+        'STACH': 'STACH',
+        'SINUS TACHYCARDIA': 'STACH',
+        
+        # Premature Atrial Complex/Contraction
+        'PAC': 'PAC',
+        'APB': 'PAC',     # Atrial Premature Beat -> PAC
+        'APC': 'PAC',     # Atrial Premature Complex -> PAC
+        
+        # Premature Ventricular Complex/Contraction  
+        'PVC': 'PVC',
+        'VPB': 'PVC',     # Ventricular Premature Beat -> PVC
+        'VPC': 'PVC',     # Ventricular Premature Complex -> PVC
+    }
+    return mapping
+
+def map_diseases_to_categories(predictions, disease_mapping):
+    """
+    将原始预测结果映射到目标疾病类别
+    
+    参数:
+        predictions: 原始预测结果字典 {disease: probability}
+        disease_mapping: 疾病映射字典
+    
+    返回:
+        映射后的预测结果字典 {target_category: probability}
+    """
+    # 定义目标疾病类别
+    target_categories = [
+        'NORM', '1dAVB', '2dAVB', '3dAVB', 'AFIB', 'AFLT', 
+        'LBBB', 'RBBB', 'STACH', 'PAC', 'PVC'
+    ]
+    
+    # 初始化结果字典
+    mapped_predictions = {category: 0.0 for category in target_categories}
+    
+    # 映射疾病并累加概率
+    for disease, prob in predictions.items():
+        # 查找映射的目标类别
+        target_category = None
+        
+        # 直接匹配
+        if disease in disease_mapping:
+            target_category = disease_mapping[disease]
+        else:
+            # 模糊匹配（处理可能的变体）
+            for key, value in disease_mapping.items():
+                if key in disease.upper() or disease.upper() in key:
+                    target_category = value
+                    break
+        
+        # 如果找到映射，累加概率；否则归类为 'OTHER'
+        if target_category and target_category in mapped_predictions:
+            mapped_predictions[target_category] += prob
+        else:
+            # 如果没有映射，归类为 'OTHER'（这里我们暂时忽略，因为老师只关心这10种）
+            pass
+    
+    # 按概率排序并返回 top-5
+    sorted_predictions = sorted(mapped_predictions.items(), key=lambda x: x[1], reverse=True)
+    top_5_predictions = dict(sorted_predictions[:5])
+    
+    return top_5_predictions
+
 # 1. 配置微调模型路径（超类预测）
 HERE            = os.path.dirname(os.path.realpath(__file__))
 BASE_PATH_FT    = os.path.join(HERE, 'output', 'exp0_ft')
@@ -187,10 +286,10 @@ def load_scaler_and_mlb(data_dir, class_type="superclass"):
         print(f"🔢 Loaded {len(mlb.classes_)} classes: {mlb.classes_}")
         return scaler, mlb
     except FileNotFoundError as e:
-        print(f"❌ 文件未找到: {e}")
+        print(f"❌ File not found: {e}")
         raise
     except Exception as e:
-        print(f"❌ 加载文件时出错: {e}")
+        print(f"❌ Error loading file: {e}")
         raise
 
 def build_class_map(mlb):
@@ -211,50 +310,50 @@ def process_and_predict(dicom_file, class_type="subclass"):
         预测结果字典 {label: probability}
     """
     if class_type not in ["superclass", "subclass"]:
-        raise ValueError('class_type 必须是 "superclass" 或 "subclass"')
+        raise ValueError('class_type must be "superclass" or "subclass"')
     
     print(f"🎯 Prediction type: {class_type}")
     
     if class_type == "superclass":
-        # 使用微调模型预测5个超类
+        # Use fine-tuned model to predict 5 superclasses
         return _predict_superclass(dicom_file)
     else:
-        # 使用原始模型预测71个子类
+        # Use original model to predict 71 subclasses, then map to target categories
         return _predict_subclass(dicom_file)
 
 def _predict_superclass(dicom_file):
-    """使用微调模型预测超类（5分类）"""
-    set_seed()  # 固定随机
+    """Use fine-tuned model to predict superclasses (5 classes)"""
+    set_seed()  # Fix random seed
 
-    # -- 1. 加载 scaler 与 mlb
+    # -- 1. Load scaler and mlb
     scaler, mlb = load_scaler_and_mlb(DATA_DIR_FT, "superclass")
     idx2name   = build_class_map(mlb)
     n_out      = len(mlb.classes_)
 
-    # -- 2. 提取 ECG
+    # -- 2. Extract ECG
     ecg = extract_ecg_from_dicom(dicom_file)         # shape (samples, channels)
     
-    # -- 3. 预处理：转成 (channels, samples)，再 normalize
+    # -- 3. Preprocess: convert to (channels, samples), then normalize
     sig = ecg.astype(np.float32).T   
-    # 归一化DICOM数据到[-1, 1]范围
+    # Normalize DICOM data to [-1, 1] range
     sig = sig / 1000.0                # (12, N)
-    sig, scaler = preprocess_signal(sig, scaler)     # reuse classify_single_ecg_ft 里的逻辑
+    sig, scaler = preprocess_signal(sig, scaler)     # reuse logic from classify_single_ecg_ft
     x   = torch.from_numpy(sig).unsqueeze(0)         # (1,12,N)
 
-    # -- 4. 加载微调模型
+    # -- 4. Load fine-tuned model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model  = load_model(WEIGHTS_FILE_FT, n_in=12, n_out=n_out, device=device)
     if model is None:
-        raise RuntimeError("微调模型加载失败")
+        raise RuntimeError("Failed to load fine-tuned model")
 
-    # -- 5. 推理
+    # -- 5. Inference
     x = x.to(device)
     with torch.no_grad():
         logits = model(x)                            # (1, n_out)
         probs  = F.softmax(logits, dim=-1)[0].cpu().numpy()
     idxs = np.argsort(probs)[::-1][:5]
 
-    # -- 6. 输出 top-5 并以字典形式返回
+    # -- 6. Output top-5 and return as dictionary
     result = {}
     print(f"\nDICOM: {dicom_file}")
     for i in idxs:
@@ -264,64 +363,75 @@ def _predict_superclass(dicom_file):
     return result
 
 def _predict_subclass(dicom_file):
-    """使用原始模型预测子类（71分类）"""
-    set_seed_128()  # 固定随机
+    """Use original model to predict subclasses (71 classes), then map to target disease categories"""
+    set_seed_128()  # Fix random seed
 
-    # -- 1. 加载 scaler 与 mlb
+    # -- 1. Load scaler and mlb
     scaler, mlb = load_scaler_and_mlb(DATA_DIR_ORIG, "subclass")
     idx2name   = build_class_map(mlb)
     n_out      = len(mlb.classes_)
 
-    # -- 2. 提取 ECG
+    # -- 2. Extract ECG
     ecg = extract_ecg_from_dicom(dicom_file)         # shape (samples, channels)
     
-    # -- 3. 预处理：转成 (channels, samples)，再 normalize
+    # -- 3. Preprocess: convert to (channels, samples), then normalize
     sig = ecg.astype(np.float32).T   
-    # 归一化DICOM数据到[-1, 1]范围
+    # Normalize DICOM data to [-1, 1] range
     sig = sig / 1000.0                # (12, N)
-    sig, scaler = preprocess_signal_128(sig, scaler)     # 使用子类预测的预处理逻辑
+    sig, scaler = preprocess_signal_128(sig, scaler)     # Use preprocessing logic for subclass prediction
     x   = torch.from_numpy(sig).unsqueeze(0)         # (1,12,N)
 
-    # -- 4. 加载原始模型
+    # -- 4. Load original model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model  = load_model_128(WEIGHTS_FILE_ORIG, n_in=12, n_out=n_out, device=device)
     if model is None:
-        raise RuntimeError("原始模型加载失败")
+        raise RuntimeError("Failed to load original model")
 
-    # -- 5. 推理
+    # -- 5. Inference
     x = x.to(device)
     with torch.no_grad():
         logits = model(x)                            # (1, n_out)
         probs  = F.softmax(logits, dim=-1)[0].cpu().numpy()
     idxs = np.argsort(probs)[::-1][:5]
 
-    # -- 6. 输出 top-5 并以字典形式返回
-    result = {}
+    # -- 6. Get original prediction results
+    original_result = {}
     print(f"\nDICOM: {dicom_file}")
+    print("Original prediction results (71 classes):")
     for i in idxs:
-        result[idx2name[i]] = float(probs[i])
+        original_result[idx2name[i]] = float(probs[i])
         print(f"  {idx2name[i]:15s} prob={probs[i]:.3f}")
 
-    return result
+    # -- 7. Map to target disease categories
+    disease_mapping = get_disease_mapping()
+    mapped_result = map_diseases_to_categories(original_result, disease_mapping)
+    
+    print("\nMapped prediction results (target disease categories):")
+    for category, prob in mapped_result.items():
+        if prob > 0:
+            print(f"  {category:15s} prob={prob:.3f}")
+
+    return mapped_result
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print("用法: python extract_and_predict_ecg.py <dicom_path> [class_type]")
-        print("class_type: superclass (超类，5分类) 或 subclass (子类，71分类)，默认为 subclass")
+        print("Usage: python extract_and_predict_ecg.py <dicom_path> [class_type]")
+        print("class_type: superclass (5 classes) or subclass (71 classes), default is subclass")
         sys.exit(1)
 
     dicom_path = sys.argv[1]
     class_type = sys.argv[2] if len(sys.argv) > 2 else "subclass"
     
-    # 处理 DICOM 文件并获取预测结果（字典类型）
+    # Process DICOM file and get prediction results (dictionary type)
     try:
         predictions = process_and_predict(dicom_path, class_type)
         
-        # 打印预测结果（字典形式）
-        print(f"\n Pridiction outcomes ({class_type}):")
+        # Print prediction results (dictionary format)
+        print(f"\nFinal prediction results ({class_type}):")
         for label, prob in predictions.items():
-            print(f"{label}: {prob:.3f}")
+            if prob > 0:  # Only show categories with probability > 0
+                print(f"{label}: {prob:.3f}")
     except Exception as e:
         print(f"❌ Prediction failed: {e}")
         import traceback

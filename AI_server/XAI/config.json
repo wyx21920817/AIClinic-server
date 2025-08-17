@@ -1,0 +1,65 @@
+{
+    "output_dir": "data/ecg_analysis_results",
+    "tasks": [
+        {
+            "abnormality": "AF",
+            "record_name": "16731_hr",
+            "lead_index": 1
+        },
+        {
+            "abnormality": "ST",
+            "record_name": "04408_hr",
+            "lead_index": 1
+        },
+        {
+            "abnormality": "LBBB",
+            "record_name": "03016_hr",
+            "lead_index": 1
+        },
+        {
+            "abnormality": "LBBB",
+            "record_name": "15592_hr",
+            "lead_index": 1
+        },
+        {
+            "abnormality": "RBBB",
+            "record_name": "03041_hr",
+            "lead_index": [
+                "V1",
+                "V2",
+                "V6",
+                "I"
+            ]
+        },
+        {
+            "abnormality": "1dAVB",
+            "record_name": "01484_hr",
+            "lead_index": 1
+        },
+        {
+            "abnormality": "AF",
+            "filepath": "00001_lr.dcm",
+            "lead_index": "II"
+        },
+        {
+            "abnormality": "AF",
+            "filepath": "00279_lr.dcm",
+            "lead_index": "II"
+        },
+        {
+            "abnormality": "RBBB",
+            "filepath": "00279_lr.dcm",
+            "lead_index": [
+                "V1",
+                "V2",
+                "V6",
+                "I"
+            ]
+        },
+        {
+            "abnormality": "NR",
+            "record_name": "19005_hr",
+            "lead_index": 1
+        }
+    ]
+}

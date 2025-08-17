@@ -1,0 +1,36 @@
+{
+    "title": "RBBB Screening (03041_hr)",
+    "report_text": "▸ Record: 03041_hr\n▸ Average QRS width: 0.095 s  (>0.12 s proportion: 35.7% if available)\n▸ QRS categories: wide=15, borderline=6, normal=14, narrow/uncertain=7\n▸ rsR'/M pattern (V1/V2): No  (beats: 0, wide/borderline beats: 0)\n▸ Wide deep S (V6/I): Yes  (beats: 2, wide/borderline beats: 1)\n\nSimple Conclusion: Incomplete morphology or QRS duration; manual review recommended",
+    "metrics": {
+        "qrs_mean_s": 0.09514285714285713,
+        "wide_qrs_proportion": 0.35714285714285715,
+        "rsr_pattern_detected": false,
+        "rsr_beats_count": 0,
+        "rsr_beats_wide_or_borderline": 0,
+        "wide_s_wave_detected": true,
+        "deep_s_beats_count": 2,
+        "deep_s_beats_wide_or_borderline": 1,
+        "qrs_category_counts": {
+            "narrow": 7,
+            "normal": 14,
+            "borderline": 6,
+            "wide": 15
+        }
+    },
+    "image_paths": [
+        "rbbb_leads_analysis.png",
+        "rbbb_qrs_histogram.png"
+    ],
+    "validation": {
+        "status": "fail",
+        "reasons": [
+            "QRS duration or morphology not sufficient"
+        ],
+        "metrics_used": {
+            "mean_qrs": 0.09514285714285713,
+            "rsr": false,
+            "deep_s": true
+        }
+    },
+    "processing_time_seconds": 1.9
+}

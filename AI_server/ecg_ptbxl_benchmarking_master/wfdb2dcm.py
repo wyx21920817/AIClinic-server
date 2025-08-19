@@ -1,4 +1,6 @@
 # wfdb2dcm_correct_official.py
+# python wfdb2dcm.py 00556_lr data/ptbxl/records100/00000 00556_lr.dcm
+
 """
 Correct version based on pydicom official documentation
 """

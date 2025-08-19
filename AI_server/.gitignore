@@ -20,6 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# AI
+*.pth
+*.pkl
+
 # Virtual Environment
 .venv/*
 venv/

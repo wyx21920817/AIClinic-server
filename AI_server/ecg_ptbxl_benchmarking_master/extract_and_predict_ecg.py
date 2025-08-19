@@ -169,14 +169,14 @@ def get_disease_mapping():
         
         # Sinus Tachycardia
         'STACH': 'STACH',
-        'SVTAC': 'STACH',     # Supraventricular tachycardia -> STACH
-        'PSVT': 'STACH',      # Paroxysmal SVT -> STACH
+        # 'SVTAC': 'STACH',     # Supraventricular tachycardia -> STACH
+        # 'PSVT': 'STACH',      # Paroxysmal SVT -> STACH
         
         # Premature Atrial Complex/Contraction
         'PAC': 'PAC',
-        'PRC(S)': 'PAC',      # Premature complex(es) -> PAC
-        'BIGU': 'PAC',        # Bigeminal pattern -> PAC 
-        'TRIGU': 'PAC',       # Trigeminal pattern -> PAC 
+        # 'PRC(S)': 'PAC',      # Premature complex(es) -> PAC
+        # 'BIGU': 'PAC',        # Bigeminal pattern -> PAC 
+        # 'TRIGU': 'PAC',       # Trigeminal pattern -> PAC 
         
         # Premature Ventricular Complex/Contraction  
         'PVC': 'PVC',

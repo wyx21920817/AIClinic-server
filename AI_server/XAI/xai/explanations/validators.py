@@ -110,4 +110,48 @@ def validate_nr(metrics: dict) -> dict:
     return _mk("fail", ["neither HR nor rr_cv in normal range"], {"avg_hr": hr, "rr_cv": rr_cv})
 
 
+def validate_avb2(metrics: dict) -> dict:
+    conducted = metrics.get('conducted_count') or 0
+    total_p = metrics.get('total_p_count') or 0
+    dropped = metrics.get('dropped_p_count') or 0
+    wenck = metrics.get('wenckebach_seq_count') or 0
+    pr_std = metrics.get('pr_std_s')
+    if total_p == 0:
+        return _mk('fail', ['no P detections'], {})
+    ratio = conducted / total_p if total_p else 0.0
+    # Pass if there are dropped beats and either wenckebach present (Mobitz I) or low PR variability (Mobitz II)
+    if dropped >= 1 and (wenck >= 1 or (pr_std is not None and pr_std < 0.03)):
+        return _mk('pass', [f'dropped={dropped}', f'wenck={wenck}', f'pr_std={pr_std}'], {'dropped': dropped, 'wenck': wenck, 'pr_std': pr_std, 'ratio': round(ratio, 2)})
+    if dropped >= 1:
+        return _mk('warn', [f'dropped={dropped} without clear subtype'], {'dropped': dropped, 'ratio': round(ratio, 2)})
+    return _mk('fail', ['no dropped beats detected'], {'ratio': round(ratio, 2)})
+
+
+def validate_avb3(metrics: dict) -> dict:
+    ratio = metrics.get('conduction_ratio')
+    pp_rate = metrics.get('pp_rate_bpm')
+    rr_rate = metrics.get('rr_rate_bpm')
+    pr_cv = metrics.get('pr_cv')
+    if ratio is None or pp_rate is None or rr_rate is None:
+        return _mk('fail', ['insufficient metrics for AV dissociation'], {'ratio': ratio, 'pp_rate': pp_rate, 'rr_rate': rr_rate})
+    rate_gap = abs(pp_rate - rr_rate)
+    if ratio < 0.2 and rate_gap > 15 and (pr_cv is None or pr_cv > 0.5):
+        return _mk('pass', [f'conduction_ratio {ratio:.2f}<0.20', f'rate_gap {rate_gap:.1f}>15 bpm', f'pr_cv {pr_cv}'], {'ratio': round(ratio, 2), 'rate_gap_bpm': round(rate_gap, 1), 'pr_cv': pr_cv})
+    if ratio < 0.3 and rate_gap > 10:
+        return _mk('warn', [f'conduction_ratio {ratio:.2f}', f'rate_gap {rate_gap:.1f}'], {'ratio': round(ratio, 2), 'rate_gap_bpm': round(rate_gap, 1)})
+    return _mk('fail', ['criteria for complete AV block not met'], {'ratio': round(ratio, 2), 'rate_gap_bpm': round(rate_gap, 1)})
+
+
+def validate_aflt(metrics: dict) -> dict:
+    dom = metrics.get('dominant_rate_bpm')
+    pr = metrics.get('band_power_ratio')
+    if dom is None or pr is None:
+        return _mk('fail', ['insufficient spectrum metrics'], {'dominant_rate_bpm': dom, 'band_power_ratio': pr})
+    if 220 <= dom <= 360 and pr >= 0.40:
+        return _mk('pass', [f'dominant_rate {dom:.0f} bpm in flutter band', f'power_ratio {pr:.2f}≥0.40'], {'dominant_rate_bpm': dom, 'band_power_ratio': pr})
+    if 200 <= dom <= 380 and pr >= 0.25:
+        return _mk('warn', [f'dominant_rate {dom:.0f} bpm', f'power_ratio {pr:.2f}'], {'dominant_rate_bpm': dom, 'band_power_ratio': pr})
+    return _mk('fail', [f'no clear flutter signature: rate {dom}, ratio {pr}'], {'dominant_rate_bpm': dom, 'band_power_ratio': pr})
+
+
 

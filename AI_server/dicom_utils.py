@@ -5,8 +5,9 @@ from pydicom import dcmread, Dataset
 from io import BytesIO
 import json
 import logging
+import os
 
-ORTHANC_URL  = "http://54.79.181.49:8042"
+ORTHANC_URL  = os.getenv("ORTHANC_URL", "http://54.79.181.49:8042")
 # ORTHANC_AUTH = ("orthanc", "orthanc") # REMOVED
 
 logging.basicConfig(level=logging.DEBUG)

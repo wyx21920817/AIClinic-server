@@ -32,36 +32,8 @@ import logging
 # set log record
 logging.basicConfig(level=logging.DEBUG)
 
-# 认证服务URL - 新增
-AUTH_SERVICE_URL = "http://54.79.181.49:8001/api/auth/temp-token"
-
 class PredictRequest(BaseModel):
     token: str
-
-async def get_temp_token() -> str | None:
-    """
-    自动获取临时认证token
-    """
-    logging.debug(f"Attempting to obtain temporary token from {AUTH_SERVICE_URL}")
-    try:
-        response = await run_in_threadpool(requests.get, AUTH_SERVICE_URL)
-        response.raise_for_status()
-        token_data = response.json()
-        temp_token = token_data.get("token")
-        
-        if temp_token:
-            logging.debug(f"Successfully obtained temporary token (expires in: {token_data.get('expires_in')} seconds).")
-            return temp_token
-        else:
-            logging.error(f"Token response did not contain 'token' field. Response: {token_data}")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Failed to obtain temporary token: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"An unexpected error occurred during token acquisition: {e}")
-        return None
 
 @app.post("/predict/{instance_id}")
 async def predict(instance_id: str, request: PredictRequest):
@@ -164,8 +136,11 @@ async def predict(instance_id: str, request: PredictRequest):
             except Exception as e:
                 logging.error(f"Failed to delete temporary file {temp_dicom_file_path}: {e}")
 
+class DiagnoseRequest(BaseModel):
+    temp_token: str
+
 @app.post("/diagnose/{instance_id}")
-async def diagnose_ecg(instance_id: str):
+async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
     """
     ECG diagnostic API for external use
     Simply enter the instance_id to automatically obtain a token and return the diagnostic results.
@@ -175,15 +150,15 @@ async def diagnose_ecg(instance_id: str):
 
     try:
         # 1. 自动获取token
-        token = await get_temp_token()
+        token = req.temp_token
         if not token:
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
 
         logging.debug(f"Successfully obtained token for instance {instance_id}")
 
         # 2. 调用预测逻辑
-        request = PredictRequest(token=token)
-        result = await predict(instance_id, request)
+        # request = PredictRequest(token=token)
+        result = await predict(instance_id, PredictRequest(token=token))
 
         # 3. 构造返回内容
         output = {
@@ -206,22 +181,20 @@ async def diagnose_ecg(instance_id: str):
 @app.post("/interprete/{instance_id}")
 async def interprete(
     instance_id: str,
-    disease: List[str] = Form(...),  # 前端以 form-data 方式多次传 disease 字段
+    disease: List[str] = Form(...),
+    temp_token: str = Form(...),
 ):
     """
-    XAI 解释接口：
-    - 确保本地 dicoms 下存在对应的 DICOM 文件（若无则自动获取并保存）
-    - 运行一次 generate_feature_params_from_diagnosis（按你的要求）
-    - 调用 run_xai_tasks(abnormalities=disease, instance_id=instance_id)
+    XAI interprete:
+    - call run_xai_tasks(abnormalities=disease, instance_id=instance_id)
     """
     logging.info(f"[interprete] instance_id={instance_id}, disease={disease}")
 
     try:
-        # 3) 调用 XAI 主流程
-        token = await get_temp_token()
+        token = temp_token
         if not token:
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
-        abnormalities = disease  # run_xai_tasks 支持 str 或 list[str]，这里直接传列表
+        abnormalities = disease
         xai_out = await run_in_threadpool(
             run_xai_tasks,
             abnormalities,        # abnormalities

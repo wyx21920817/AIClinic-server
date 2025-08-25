@@ -3,23 +3,26 @@
 import json
 import os
 import time
+import re
 
 from .xai.ecg_utils import load_dicom_signals_from_dataset
 from .xai.explanations.validators import (
     validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr,
-    validate_avb2, validate_avb3, validate_aflt
+    validate_avb2, validate_aflt
 )
 from .xai.explanations.normal import generate_normal_visuals
 from .xai.explanations.sb import generate_sb_visuals
 from .xai.explanations.af import generate_af_visuals
 from .xai.explanations.st import generate_st_visuals
-from .xai.explanations.lbbb import generate_lbbb_visuals, generate_lbbb_multilead
+from .xai.explanations.lbbb import generate_lbbb_visuals
 from .xai.explanations.rbbb import generate_rbbb_visuals
 from .xai.explanations.avb import generate_avb_visuals
 from .xai.explanations.avb2 import generate_avb2_visuals
 from .xai.explanations.avb3 import generate_avb3_visuals
-from .xai.explanations.aflt import generate_aflt_visuals, generate_aflt_multilead
+from .xai.explanations.aflt import generate_aflt_multilead, generate_aflt_visuals
+
 from dicom_utils import get_instance_dicom
+
 from dotenv import load_dotenv
 load_dotenv()
 # api url for images
@@ -29,13 +32,48 @@ def get_api_download_url(filename, instance_id):
     return f"{base_url}/static/images/{instance_id}/{filename}"
 
 
+# Helper: canonicalize lead names like 'Lead II (Einthoven)' → 'II', 'aVF' preserved, 'V 1' → 'V1'
+def _canonical_lead_name(name: str) -> str:
+    if not isinstance(name, str):
+        return str(name)
+    s = name.upper()
+    # remove parentheses content e.g., (Einthoven)
+    s = re.sub(r"\(.*?\)", "", s)
+    for token in ["LEAD", "DERIVATION", "CHANNEL", "ECG", " ", "-", "_"]:
+        s = s.replace(token, "")
+    if "AVR" in s: return "aVR"
+    if "AVL" in s: return "aVL"
+    if "AVF" in s: return "aVF"
+    for k in ["V1","V2","V3","V4","V5","V6"]:
+        if k in s: return k
+    if "III" in s: return "III"
+    if "II" in s: return "II"
+    if s.endswith("I") or s == "I":
+        return "I"
+    return name
+
+# Helper: pick preferred lead given a dict {lead_name: (sig, fs)} using canonical mapping
+def _pick_preferred_lead(leads_data: dict, preferred_order):
+    canon_map = {}
+    for k in leads_data.keys():
+        canon_map[_canonical_lead_name(k)] = k
+    for want in preferred_order:
+        if want in canon_map:
+            return canon_map[want]
+    for want in preferred_order:
+        for k in leads_data.keys():
+            if want.lower() in str(k).lower():
+                return k
+    return list(leads_data.keys())[0]
+
+
 VISUALIZATION_DISPATCHER = {
     "AFIB": generate_af_visuals,
     "STACH": generate_st_visuals,
     "1dAVB": generate_avb_visuals,
     "2dAVB": generate_avb2_visuals,
     "3dAVB": generate_avb3_visuals,
-    "AFLT": generate_aflt_visuals,
+    "AFLT": generate_aflt_visuals,  # will be overridden to multilead below
     "LBBB": generate_lbbb_visuals,
     "RBBB": generate_rbbb_visuals,
     "NORM": generate_normal_visuals,
@@ -225,60 +263,58 @@ def run_xai_tasks(
                     leads_data = load_dicom_signals_from_dataset(dicom_dataset)
                     
                     if leads_data and len(leads_data) > 0:
-                        title_map = {
-                            "LBBB": "Left Bundle Branch Block",
-                            "1dAVB": "1st Degree AV Block",
-                            "2dAVB": "2nd Degree AV Block",
-                            "3dAVB": "3rd Degree AV Block",
-                            "AFIB": "Atrial Fibrillation",
-                            "AFLT": "Atrial Flutter",
-                            "STACH": "Sinus Tachycardia"
-                        }
-                        title = f"{title_map.get(abn, abn)} ({instance_id})"
-
-                        if abn == "AFLT":
-                            # Multi-lead AFLT cross-verification on II/III/aVF/V1
-                            report_data = generate_aflt_multilead(leads_data, title, web_output_dir)
-                            if not report_data:
-                                # Fallback to single-lead selection if multi-lead fails
-                                lead_keys = list(leads_data.keys())
-                                chosen_key = None
-                                priority = ("II", "III", "AVF", "V1")
-                                for pref in priority:
-                                    for key in lead_keys:
-                                        base = key.replace("Lead ", "").strip().upper()
-                                        if base == pref:
-                                            chosen_key = key; break
-                                    if chosen_key: break
-                                lead_name = chosen_key if chosen_key else lead_keys[0]
-                                ecg_signal, fs = leads_data[lead_name]
-                                if ecg_signal is not None:
-                                    report_data = generate_aflt_visuals(ecg_signal, fs, title, lead_name, web_output_dir)
-                        else:
-                            # Single-lead workflows
-                            lead_keys = list(leads_data.keys())
-                            chosen_key = None
-                            if abn in ("1dAVB", "2dAVB", "3dAVB"):
-                                for key in lead_keys:
-                                    base = key.replace("Lead ", "").strip().upper()
-                                    if base == "II":
-                                        chosen_key = key
-                                        break
-                            # fallback: first available
-                            lead_name = chosen_key if chosen_key else lead_keys[0]
+                        # choose lead based on abnormality or run multilead
+                        if abn == "3dAVB" or abn == "2dAVB":
+                            preferred = ["II", "III", "aVF", "V1", "I"]
+                            lead_name = _pick_preferred_lead(leads_data, preferred)
                             ecg_signal, fs = leads_data[lead_name]
-                            if ecg_signal is not None:
-                                report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir)
-                            else:
-                                if verbose:
-                                    print(f"Failed to extract ECG signal for {instance_id}. Skipping.")
-                                results.append({
-                                    "status": "failed",
-                                    "reason": "signal_extraction_failed",
-                                    "abnormality": abn,
-                                    "instance_id": instance_id,
-                                })
-                                continue
+                            title_map = {
+                                "LBBB": "Left Bundle Branch Block", 
+                                "1dAVB": "1st Degree AV Block",
+                                "2dAVB": "2nd Degree AV Block",
+                                "3dAVB": "3rd Degree AV Block",
+                                "AFLT": "Atrial Flutter",
+                                "AFIB": "Atrial Fibrillation", 
+                                "STACH": "Sinus Tachycardia"
+                            }
+                            title = f"{title_map.get(abn, abn)} ({instance_id})"
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, 
+                                                          web_output_dir)
+                        elif abn == "AFLT":
+                            # Multi-lead AFLT analysis
+                            title_map = {
+                                "AFLT": "Atrial Flutter"
+                            }
+                            title = f"{title_map.get(abn, abn)} ({instance_id})"
+                            report_data = generate_aflt_multilead(leads_data, title, web_output_dir)
+                        else:
+                            # get first available lead data (prefer II for rhythm if available)
+                            preferred = ["II", "III", "aVF", "V1", "I"]
+                            lead_name = _pick_preferred_lead(leads_data, preferred)
+                            ecg_signal, fs = leads_data[lead_name]
+                            title_map = {
+                                "LBBB": "Left Bundle Branch Block", 
+                                "1dAVB": "1st Degree AV Block",
+                                "2dAVB": "2nd Degree AV Block",
+                                "3dAVB": "3rd Degree AV Block",
+                                "AFLT": "Atrial Flutter",
+                                "AFIB": "Atrial Fibrillation", 
+                                "STACH": "Sinus Tachycardia"
+                            }
+                            title = f"{title_map.get(abn, abn)} ({instance_id})"
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, 
+                                                          web_output_dir)
+                        
+                        if not report_data:
+                            if verbose:
+                                print(f"Failed to generate {abn} analysis for {instance_id}. Skipping.")
+                            results.append({
+                                "status": "failed",
+                                "reason": "generate_failed",
+                                "abnormality": abn,
+                                "instance_id": instance_id,
+                            })
+                            continue
                     else:
                         if verbose:
                             print(f"Failed to extract ECG signal for {instance_id}. Skipping.")
@@ -312,17 +348,14 @@ def run_xai_tasks(
                     val = None
                     if abn == "AFIB":
                         val = validate_af(report_data.get("metrics", {}))
-                    elif abn == "AFLT":
-                        val = validate_aflt(report_data.get("metrics", {}))
                     elif abn == "STACH":
                         val = validate_st(report_data.get("metrics", {}))
                     elif abn == "SB":
                         val = validate_sb(report_data.get("metrics", {}))
                     elif abn == "1dAVB":
                         val = validate_avb1(report_data.get("metrics", {}))
-                    elif abn == "2dAVB":
-                        val = validate_avb2(report_data.get("metrics", {}))
                     elif abn == "3dAVB":
+                        from .xai.explanations.validators import validate_avb3
                         val = validate_avb3(report_data.get("metrics", {}))
                     elif abn == "LBBB":
                         val = validate_lbbb(report_data.get("metrics", {}))
@@ -335,6 +368,18 @@ def run_xai_tasks(
                 except Exception as _e:
                     report_data["validation"] = {"status": "warn", "reasons": ["validator error"], "metrics_used": {}}
                 
+                # Additional validators
+                if abn == "2dAVB":
+                    try:
+                        report_data["validation"] = validate_avb2(report_data.get("metrics", {}))
+                    except Exception:
+                        pass
+                if abn == "AFLT":
+                    try:
+                        report_data["validation"] = validate_aflt(report_data.get("metrics", {}))
+                    except Exception:
+                        pass
+
                 report_data['processing_time_seconds'] = round(duration, 2)
                 
                 # generate API format image URL

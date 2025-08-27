@@ -149,18 +149,15 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
     logging.info(f"Receive a diagnostic request,Instance ID: {instance_id}")
 
     try:
-        # 1. 自动获取token
         token = req.temp_token
         if not token:
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
 
         logging.debug(f"Successfully obtained token for instance {instance_id}")
 
-        # 2. 调用预测逻辑
         # request = PredictRequest(token=token)
         result = await predict(instance_id, PredictRequest(token=token))
 
-        # 3. 构造返回内容
         output = {
             "instance_id": instance_id,
             "status": "success",
@@ -169,7 +166,6 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
             "message": f"Successfully diagnosed ECG instance: {instance_id}"
         }
 
-        # 5. 返回API响应
         return output
 
     except HTTPException:

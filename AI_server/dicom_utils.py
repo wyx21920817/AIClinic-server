@@ -6,6 +6,7 @@ from io import BytesIO
 import json
 import logging
 import os
+from typing import Union, Optional
 
 ORTHANC_URL  = os.getenv("ORTHANC_URL", "http://54.79.181.49:8042")
 # ORTHANC_AUTH = ("orthanc", "orthanc") # REMOVED
@@ -54,7 +55,7 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
 
 # --- MODIFIED store_instance_dicom function using the modify+upload strategy ---
 # This implements the two-step process: modify via /modify, then upload resulting binary via /instances.
-def store_instance_dicom(instance_id: str, comment: str, token: str) -> str | None:
+def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional[str]:
     """
     Modify instance via /instances/{id}/modify to get modified binary data,
     then upload the resulting binary data via /instances to get the new instance ID.

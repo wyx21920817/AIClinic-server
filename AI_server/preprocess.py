@@ -3,8 +3,9 @@ import h5py
 import wfdb
 import os
 from pydicom import Dataset
+from typing import Tuple, List
 
-def extract_waveform(ds: Dataset) -> tuple[np.ndarray, int, list[str]]:
+def extract_waveform(ds: Dataset) -> Tuple[np.ndarray, int, List[str]]:
     """
     在您原始代码基础上的改进版本
     """
@@ -99,7 +100,7 @@ def save_as_hdf5(ecg_array: np.ndarray, sampling_rate: int, out_path: str):
         f.create_dataset("ecg", data=ecg_array)
         f.attrs["sampling_rate"] = sampling_rate
 
-def save_as_wfdb(ecg_array: np.ndarray, sampling_rate: int, lead_names: list[str], out_dir: str, record_name: str):
+def save_as_wfdb(ecg_array: np.ndarray, sampling_rate: int, lead_names: List[str], out_dir: str, record_name: str):
     # Transpose to (n_samples, n_leads)
     ecg = ecg_array.T
     wfdb.wrsamp(

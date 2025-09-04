@@ -8,7 +8,7 @@ import re
 from .xai.ecg_utils import load_dicom_signals_from_dataset
 from .xai.explanations.validators import (
     validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr,
-    validate_avb2, validate_aflt
+    validate_avb2, validate_aflt, validate_pac, validate_pvc
 )
 from .xai.explanations.normal import generate_normal_visuals
 from .xai.explanations.sb import generate_sb_visuals
@@ -20,6 +20,8 @@ from .xai.explanations.avb import generate_avb_visuals
 from .xai.explanations.avb2 import generate_avb2_visuals
 from .xai.explanations.avb3 import generate_avb3_visuals
 from .xai.explanations.aflt import generate_aflt_multilead, generate_aflt_visuals
+from .xai.explanations.pac import generate_pac_visuals
+from .xai.explanations.pvc import generate_pvc_visuals
 
 from dicom_utils import get_instance_dicom
 
@@ -78,6 +80,8 @@ VISUALIZATION_DISPATCHER = {
     "RBBB": generate_rbbb_visuals,
     "NORM": generate_normal_visuals,
     "SB": generate_sb_visuals,
+    "PAC": generate_pac_visuals,
+    "PVC": generate_pvc_visuals,
 }
 
 
@@ -287,6 +291,18 @@ def run_xai_tasks(
                             }
                             title = f"{title_map.get(abn, abn)} ({instance_id})"
                             report_data = generate_aflt_multilead(leads_data, title, web_output_dir)
+                        elif abn == "PAC":
+                            preferred = ["II", "III", "aVF", "V1", "I"]
+                            lead_name = _pick_preferred_lead(leads_data, preferred)
+                            ecg_signal, fs = leads_data[lead_name]
+                            title = f"Premature Atrial Complex ({instance_id})"
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir)
+                        elif abn == "PVC":
+                            preferred = ["II", "III", "aVF", "V1", "I"]
+                            lead_name = _pick_preferred_lead(leads_data, preferred)
+                            ecg_signal, fs = leads_data[lead_name]
+                            title = f"Premature Ventricular Complex ({instance_id})"
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir)
                         else:
                             # get first available lead data (prefer II for rhythm if available)
                             preferred = ["II", "III", "aVF", "V1", "I"]
@@ -363,6 +379,10 @@ def run_xai_tasks(
                         val = validate_rbbb(report_data.get("metrics", {}))
                     elif abn == "NORM":
                         val = validate_nr(report_data.get("metrics", {}))
+                    elif abn == "PAC":
+                        val = validate_pac(report_data)
+                    elif abn == "PVC":
+                        val = validate_pvc(report_data)
                     if val:
                         report_data["validation"] = val
                 except Exception as _e:

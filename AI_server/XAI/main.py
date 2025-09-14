@@ -295,14 +295,31 @@ def run_xai_tasks(
                             preferred = ["II", "III", "aVF", "V1", "I"]
                             lead_name = _pick_preferred_lead(leads_data, preferred)
                             ecg_signal, fs = leads_data[lead_name]
+                            # Try fetch V1 for auxiliary P evidence
+                            v1_key = None
+                            for k in leads_data.keys():
+                                if _canonical_lead_name(k) == "V1":
+                                    v1_key = k
+                                    break
+                            aux_v1 = leads_data[v1_key][0] if v1_key else None
                             title = f"Premature Atrial Complex ({instance_id})"
-                            report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir)
+                            meta = {'available_leads': list(leads_data.keys()), 'v1_key': v1_key}
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir, aux_v1=aux_v1, meta=meta)
                         elif abn == "PVC":
-                            preferred = ["II", "III", "aVF", "V1", "I"]
+                            preferred = ["II", "III", "aVF", "I", "V1"]
                             lead_name = _pick_preferred_lead(leads_data, preferred)
                             ecg_signal, fs = leads_data[lead_name]
+                            # Try to fetch V1 for auxiliary analysis
+                            v1_key = None
+                            for k in leads_data.keys():
+                                if _canonical_lead_name(k) == "V1":
+                                    v1_key = k
+                                    break
+                            aux_v1 = leads_data[v1_key][0] if v1_key else None
                             title = f"Premature Ventricular Complex ({instance_id})"
-                            report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir)
+                            # Pass aux_v1 and meta for debugging of lead selection
+                            meta = {'available_leads': list(leads_data.keys()), 'v1_key': v1_key}
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir, aux_v1=aux_v1, meta=meta)
                         else:
                             # get first available lead data (prefer II for rhythm if available)
                             preferred = ["II", "III", "aVF", "V1", "I"]

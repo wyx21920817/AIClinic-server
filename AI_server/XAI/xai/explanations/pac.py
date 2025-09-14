@@ -13,7 +13,7 @@ def _bandpass(signal, fs, low, high, order=4):
     return filtfilt(b, a, signal)
 
 
-def _detect_pac(ecg_cleaned: np.ndarray, fs: float):
+def _detect_pac(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = None):
     # R-peaks
     try:
         _, rpeaks = nk.ecg_peaks(ecg_cleaned, sampling_rate=fs, method="neurokit")
@@ -35,6 +35,17 @@ def _detect_pac(ecg_cleaned: np.ndarray, fs: float):
         e = min(len(blanked), r + t_blank)
         blanked[s:e] = 0.0
     atrial = _bandpass(blanked, fs, 3.0, 12.0)
+    # Optional V1 assistance
+    atrial_v1 = None
+    if aux_v1 is not None and isinstance(aux_v1, np.ndarray):
+        v1 = aux_v1[:len(ecg_cleaned)] if aux_v1.size >= len(ecg_cleaned) else None
+        if v1 is not None:
+            blanked_v1 = v1.copy()
+            for r in r_idx:
+                s = r
+                e = min(len(blanked_v1), r + t_blank)
+                blanked_v1[s:e] = 0.0
+            atrial_v1 = _bandpass(blanked_v1, fs, 3.0, 12.0)
 
     # Precompute delineation-based P peaks as auxiliary evidence
     p_peaks_global = np.array([], dtype=int)
@@ -81,13 +92,14 @@ def _detect_pac(ecg_cleaned: np.ndarray, fs: float):
             if i + 1 < len(rr) and median_rr:
                 noncomp = (rr[i] + rr[i+1]) < (1.9 * median_rr)
 
-            # P-wave evidence before premature R within 120-220 ms window
+            # P-wave evidence before premature R within 120-260 ms window
             lookback = int(0.26 * fs)
             p_start = max(0, r_idx[beat_idx] - lookback)
             p_end = r_idx[beat_idx]
             seg = atrial[p_start:p_end]
             p_present = False
             p_score = 0.0
+            p_index = None
             if seg.size > 0:
                 peaks, props = find_peaks(seg, distance=int(0.08 * fs), prominence=0.08 * np.std(seg))
                 prom_score = 0.0
@@ -95,6 +107,9 @@ def _detect_pac(ecg_cleaned: np.ndarray, fs: float):
                     prom = props.get('prominences', np.array([0.0]))
                     base = np.std(seg) + 1e-8
                     prom_score = float(np.clip(np.max(prom) / (2.5 * base), 0.0, 1.0))
+                    # pick most prominent P index
+                    pi = int(peaks[int(np.argmax(prom))]) if prom.size else int(peaks[0])
+                    p_index = int(p_start + pi)
                 # Global delineation support
                 glob_hits = p_peaks_global[(p_peaks_global >= p_start) & (p_peaks_global <= p_end)]
                 glob_score = 1.0 if glob_hits.size > 0 else 0.0
@@ -104,6 +119,18 @@ def _detect_pac(ecg_cleaned: np.ndarray, fs: float):
                 # Combine conservatively
                 p_score = 0.5 * prom_score + 0.3 * glob_score + 0.2 * amp_score
                 p_present = p_score >= 0.3
+            # V1-assisted P evidence (boost presence if V1 clearly shows P)
+            v1_p_present = False
+            v1_p_index = None
+            if (atrial_v1 is not None):
+                seg_v1 = atrial_v1[p_start:p_end]
+                if seg_v1.size > 0:
+                    peaks_v1, props_v1 = find_peaks(seg_v1, distance=int(0.08 * fs), prominence=0.08 * np.std(seg_v1))
+                    if peaks_v1.size > 0:
+                        p_present = True
+                        v1_p_present = True
+                        v1_p_index = int(p_start + int(peaks_v1[0]))
+                        p_score = max(p_score, 0.4)
 
             # Prematurity score based on RR shortening magnitude
             shorten = (median_rr - rr[i]) / median_rr if median_rr else 0.0
@@ -145,6 +172,9 @@ def _detect_pac(ecg_cleaned: np.ndarray, fs: float):
                 'rr_short_pct': float(shorten * 100.0),
                 'noncompensatory': bool(noncomp),
                 'p_present': bool(p_present),
+                'p_index': int(p_index) if p_index is not None else None,
+                'v1_p_present': bool(v1_p_present),
+                'v1_p_index': int(v1_p_index) if v1_p_index is not None else None,
                 'scores': {
                     'prematurity': prem_score,
                     'p_wave': p_score,
@@ -209,7 +239,7 @@ def _estimate_qrs_widths(ecg_cleaned: np.ndarray, r_idx: np.ndarray, fs: float):
     return np.asarray(qrs_widths)
 
 
-def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title: str, lead_name: str, output_dir: str):
+def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title: str, lead_name: str, output_dir: str, aux_v1: np.ndarray | None = None, meta: dict | None = None):
     if ecg_signal is None or sampling_rate is None:
         return None
 
@@ -219,17 +249,29 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     except Exception:
         ecg_cleaned = ecg_signal
 
-    r_idx, pac_indices, det_metrics, candidates = _detect_pac(ecg_cleaned, sampling_rate)
+    r_idx, pac_indices, det_metrics, candidates = _detect_pac(ecg_cleaned, sampling_rate, aux_v1=aux_v1)
 
     # Time base
     t = np.linspace(0, len(ecg_cleaned) / sampling_rate, len(ecg_cleaned), endpoint=False)
 
-    # Overview plot with highlights
-    fig, ax = plt.subplots(figsize=(15, 4))
-    plot_ecg_with_grid(t, ecg_cleaned, f"{ecg_title} ({lead_name}) - PAC Overview", ax, sampling_rate)
-    if r_idx.size:
-        ax.scatter(t[r_idx], ecg_cleaned[r_idx], c='dodgerblue', s=18, label='R-peaks', zorder=5)
-    ymin, ymax = ax.get_ylim()
+    # Overview plot with highlights (II + optional V1)
+    ax_v1 = None
+    if aux_v1 is not None and isinstance(aux_v1, np.ndarray):
+        fig, axes = plt.subplots(2, 1, figsize=(15, 6), sharex=True)
+        ax = axes[0]
+        plot_ecg_with_grid(t, ecg_cleaned, f"{ecg_title} ({lead_name}) - PAC Overview (Lead II)", ax, sampling_rate)
+        if r_idx.size:
+            ax.scatter(t[r_idx], ecg_cleaned[r_idx], c='dodgerblue', s=18, label='R-peaks', zorder=5)
+        ax.tick_params(axis='x', which='both', labelbottom=True)
+        ax.set_xlabel('Time (s)')
+        ax_v1 = axes[1]
+        v1_draw = aux_v1[:len(ecg_cleaned)] if aux_v1.size >= len(ecg_cleaned) else aux_v1
+        plot_ecg_with_grid(t, v1_draw, "Aux Lead V1", ax_v1, sampling_rate)
+    else:
+        fig, ax = plt.subplots(figsize=(15, 4))
+        plot_ecg_with_grid(t, ecg_cleaned, f"{ecg_title} ({lead_name}) - PAC Overview", ax, sampling_rate)
+        if r_idx.size:
+            ax.scatter(t[r_idx], ecg_cleaned[r_idx], c='dodgerblue', s=18, label='R-peaks', zorder=5)
     suspicious_times = []
     pac_present = False
     # highlight confirmed PACs and suspicious (not classified)
@@ -243,13 +285,107 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
             else:
                 ax.axvspan(x0, x1, color='orange', alpha=0.18)
                 suspicious_times.append(cand.get('time_s'))
-    # build legend entries unified at top-right
+    # build legend entries for II
     handles, labels = ax.get_legend_handles_labels()
     if pac_present:
         handles.append(Patch(facecolor='crimson', alpha=0.22, edgecolor='crimson', label='PAC'))
     if suspicious_times:
         handles.append(Patch(facecolor='orange', alpha=0.18, edgecolor='orange', label='Suspicious (not classified)'))
     ax.legend(handles=handles, loc='upper right')
+    # V1 额外 XAI：提前P波/窄QRS/非代偿 提示，仅在 V1 子图中注记
+    if ax_v1 is not None:
+        show_v1_pac = os.getenv('XAI_SHOW_V1_PAC', '1')
+        v1_handles, v1_labels = ax_v1.get_legend_handles_labels()
+        if show_v1_pac not in ('0', 'false', 'False', None):
+            # 准备 V1 心房信号与“正常 P 模板”
+            v1_arr = v1_draw
+            # 生成 atrial_v1（R 后抑制 + 3-12Hz 带通）
+            blanked_v1 = v1_arr.copy()
+            t_blank = int(0.24 * sampling_rate)
+            for r in r_idx:
+                s = r
+                e = min(len(blanked_v1), r + t_blank)
+                blanked_v1[s:e] = 0.0
+            try:
+                nyq = 0.5 * sampling_rate
+                b, a = butter(4, [3.0/nyq, 12.0/nyq], btype='band')
+                atrial_v1 = filtfilt(b, a, blanked_v1)
+            except Exception:
+                atrial_v1 = blanked_v1
+
+            # 构建“正常 P 模板”（选择接近基线 RR 且未被判为 PAC 的心搏）
+            rr = np.diff(r_idx) / sampling_rate if r_idx.size > 1 else np.array([])
+            median_rr = det_metrics.get('median_rr_s') or (float(np.median(rr)) if rr.size else None)
+            lookback = int(0.22 * sampling_rate)
+            pac_beats = {int(c['beat_index']) for c in candidates if c.get('classified_as_pac')}
+            template_segs = []
+            for k in range(1, len(r_idx) - 1):
+                if k in pac_beats or not rr.size:
+                    continue
+                i_prev = k - 1
+                if 0 <= i_prev < rr.size and median_rr:
+                    if abs(rr[i_prev] - median_rr) <= 0.1 * median_rr:
+                        ps = max(0, r_idx[k] - lookback)
+                        pe = r_idx[k]
+                        seg = atrial_v1[ps:pe]
+                        if seg.size == lookback and np.any(np.isfinite(seg)):
+                            v = seg - np.mean(seg)
+                            n = np.linalg.norm(v) + 1e-8
+                            template_segs.append(v / n)
+                if len(template_segs) >= 5:
+                    break
+            p_template = np.mean(template_segs, axis=0) if template_segs else None
+
+            # 绘制每个已判定 PAC 候选在 V1 的“提前P窗口”、“V1 P索引虚线”、“窄QRS窗”以及模板对比
+            qrs_widths_s = det_metrics.get('qrs_widths_s') or []
+            for cand in candidates:
+                if not cand.get('classified_as_pac'):
+                    continue
+                bi = cand['beat_index']
+                if bi < 0 or bi >= r_idx.size:
+                    continue
+                r = int(r_idx[bi])
+                # 提前 P 窗口（淡青）
+                ps = max(0, r - lookback)
+                pe = r
+                x0 = t[ps]
+                x1 = t[pe]
+                ax_v1.axvspan(x0, x1, color='cyan', alpha=0.12)
+                # V1 P-wave 索引（虚线）
+                v1_pi = cand.get('v1_p_index')
+                if isinstance(v1_pi, (int, np.integer)) and 0 <= v1_pi < len(t):
+                    ax_v1.axvline(t[v1_pi], color='teal', linestyle='--', linewidth=1.3, alpha=0.85)
+                # 窄 QRS 窗（浅绿）
+                qrsw = None
+                if isinstance(qrs_widths_s, list) and bi < len(qrs_widths_s):
+                    qrsw = qrs_widths_s[bi]
+                if isinstance(qrsw, (float, int)) and qrsw == qrsw and qrsw <= 0.08:
+                    cx = t[r]
+                    left = max(t[0], cx - 0.5 * qrsw)
+                    right = min(t[-1], cx + 0.5 * qrsw)
+                    ax_v1.axvspan(left, right, color='lightgreen', alpha=0.22)
+                # 正常 P 模板对比（灰色细线）——按原始 V1 振幅与基线对齐，提升可见性
+                if p_template is not None and pe > ps:
+                    seg_raw = v1_arr[ps:pe]
+                    if seg_raw.size == p_template.size:
+                        baseline = float(np.median(seg_raw)) if seg_raw.size else 0.0
+                        amp_raw = float(np.max(np.abs(seg_raw - baseline))) if seg_raw.size else 0.0
+                        scale = 0.8 * max(amp_raw, 1e-6)
+                        tpl_norm = p_template / (np.max(np.abs(p_template)) + 1e-8)
+                        tpl = baseline + tpl_norm * scale
+                        ax_v1.plot(t[ps:pe], tpl, color='dimgray', linewidth=1.3, alpha=0.9, label='Normal P template (V1)')
+
+            # 构建 V1 专属图例，不影响 II 子图
+            if 'Early P window (V1)' not in v1_labels:
+                v1_handles.append(Patch(facecolor='cyan', edgecolor='cyan', alpha=0.12, label='Early P window (V1)'))
+            if 'V1 P index' not in v1_labels:
+                from matplotlib.lines import Line2D
+                v1_handles.append(Line2D([0], [0], color='teal', linestyle='--', label='V1 P index'))
+            if 'Narrow QRS (V1)' not in v1_labels:
+                v1_handles.append(Patch(facecolor='lightgreen', edgecolor='lightgreen', alpha=0.22, label='Narrow QRS (V1)'))
+            if 'Normal P template (V1)' not in v1_labels:
+                v1_handles.append(Patch(facecolor='none', edgecolor='dimgray', label='Normal P template (V1)'))
+        ax_v1.legend(handles=v1_handles, loc='upper right')
     plt.tight_layout(); plt.savefig(os.path.join(output_dir, 'pac_overview.png')); plt.close(fig)
 
     # RR tachogram and histogram
@@ -285,7 +421,8 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
         if top.get('classified_as_pac'):
             report_text = (
                 f"Report: Sinus baseline with {baseline_txt}. A premature beat at {top['time_s']:.2f}s "
-                f"(RR {top['rr_short_s']:.2f}s, -{top['rr_short_pct']:.0f}%) was classified as PAC. "
+                f"(RR {top['rr_short_s']:.2f}s, -{top['rr_short_pct']:.0f}%) was classified as PAC, "
+                f"with early P in V1, narrow QRS, non-compensatory. "
                 f"Final PAC count: {pac_cnt}."
             )
         else:
@@ -339,18 +476,19 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
         'report_text': report_text,
         'summary': summary,
         'statistics': statistics,
-        'image_paths': ['pac_overview.png', 'pac_rr.png'] if rr.size else ['pac_overview.png']
+        'image_paths': ['pac_overview.png', 'pac_rr.png'] if rr.size else ['pac_overview.png'],
     }
 
     # Optional: attach debug details when enabled via env var
-    dbg = os.getenv('XAI_DEBUG_VERBOSE', '0')
+    dbg = os.getenv('XAI_DEBUG_VERBOSE', '1')
     if dbg not in ('0', 'false', 'False', None):
         out['debug_details'] = {
             'candidates_analysis': candidates,
             'raw_beat_metrics': {
                 # PAC doesn t use onsets/offsets; keep candidates and r indices
                 'r_indices': r_idx.tolist(),
-            }
+            },
+            'available_leads': (meta or {}).get('available_leads') if isinstance(meta, dict) else None,
         }
 
     return out

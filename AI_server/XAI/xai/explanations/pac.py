@@ -480,7 +480,7 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     }
 
     # Optional: attach debug details when enabled via env var
-    dbg = os.getenv('XAI_DEBUG_VERBOSE', '1')
+    dbg = os.getenv('XAI_DEBUG_VERBOSE', '0')
     if dbg not in ('0', 'false', 'False', None):
         out['debug_details'] = {
             'candidates_analysis': candidates,

@@ -573,7 +573,6 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
                 label = 'Indeterminate morphology'
                 color = 'gray'
             ax_v1.axvspan(x0, x1, color=color, alpha=0.18)
-            ax_v1.text((x0+x1)/2, ax_v1.get_ylim()[1]*0.85, label, ha='center', va='top', fontsize=9, color=color, alpha=0.9)
         # Legend for V1 morphology
         if 'RBBB (LV)' not in v1_labels:
             v1_handles.append(Patch(facecolor='red', edgecolor='red', alpha=0.18, label='RBBB pattern (LV origin)'))
@@ -647,15 +646,31 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
         ax1.set_ylabel('RR (s)')
         ax1.grid(alpha=0.3)
 
+        rr_excluded = rr_all[~mask]
+        bins = np.arange(max(0.3, rr_all.min() - 0.05), rr_all.max() + 0.1, 0.05) if rr_all.size else 10
+
+        # Baseline (PVC-excluded) distribution
         if rr_baseline.size:
-            bins = np.arange(max(0.3, rr_all.min() - 0.05), rr_all.max() + 0.1, 0.05)
-            ax2.hist(rr_baseline, bins=bins, color='#4C78A8', edgecolor='white')
-        else:
-            ax2.hist(rr_all, bins=10, color='#4C78A8', edgecolor='white')
+            ax2.hist(rr_baseline, bins=bins, color='#4C78A8', edgecolor='white', label='Baseline RR (PVC-excluded)')
+            median_base = float(np.median(rr_baseline))
+            ax2.axvline(median_base, color='crimson', linestyle='--', linewidth=1.4, alpha=0.85, label='Median baseline RR')
+        # PVC-coupled distribution for reference
+        if rr_excluded.size:
+            ax2.hist(rr_excluded, bins=bins, color='tomato', edgecolor='white', alpha=0.55, label='PVC-coupled RR')
+
+        # Fallback if everything empty
+        if not rr_baseline.size and not rr_excluded.size and rr_all.size:
+            ax2.hist(rr_all, bins=bins, color='#4C78A8', edgecolor='white', label='RR')
+            median_base = float(np.median(rr_all))
+            ax2.axvline(median_base, color='crimson', linestyle='--', linewidth=1.4, alpha=0.85, label='Median RR')
+
         ax2.set_title('RR histogram')
         ax2.set_xlabel('RR (s)')
         ax2.set_ylabel('Count')
         ax2.grid(alpha=0.2)
+        # Show legend if any labeled element exists
+        if len(ax2.get_legend_handles_labels()[0]):
+            ax2.legend(loc='upper right')
         plt.tight_layout(); plt.savefig(os.path.join(output_dir, 'pvc_rr.png')); plt.close(fig2)
 
     # # QRS debug plot

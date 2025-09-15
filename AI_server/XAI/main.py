@@ -72,6 +72,7 @@ def _pick_preferred_lead(leads_data: dict, preferred_order):
 VISUALIZATION_DISPATCHER = {
     "AFIB": generate_af_visuals,
     "STACH": generate_st_visuals,
+    "SBRAD": generate_sb_visuals,
     "1dAVB": generate_avb_visuals,
     "2dAVB": generate_avb2_visuals,
     "3dAVB": generate_avb3_visuals,

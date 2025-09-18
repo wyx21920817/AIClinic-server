@@ -11,9 +11,17 @@ __pycache__
 **/*.pyc
 **/*.fls
 **/*.fdb_latexmk
-**/*.hea
-**/*.dat
 **/*.pyc
 .venv/*
+
+ecg_ptbxl_benchmarking_master/data/
+**/*.hea
+**/*.hea-
+**/*.dat
+**/*.dcm
+**/*.atr
+**/*.xws
+**/*.npy
+**/*.mat
 
 .ipynb_checkpoints

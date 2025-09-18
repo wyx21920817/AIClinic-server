@@ -172,7 +172,19 @@ class TimeseriesDatasetCrops(torch.utils.data.Dataset):
         elif(npy_data is not None):
             self.mode="npy"
             if(isinstance(npy_data,np.ndarray) or isinstance(npy_data,list)):
-                self.npy_data = np.array(npy_data)
+                # Fix: properly handle dtype=object arrays to support variable-length inputs
+                if isinstance(npy_data, np.ndarray) and npy_data.dtype == object:
+                    self.npy_data = npy_data  # 直接使用object数组
+                elif isinstance(npy_data, list):
+                    # For list, try to convert into numpy array
+                    try:
+                        self.npy_data = np.array(npy_data)
+                    except ValueError:
+                        # If conversion fails (e.g., variable-length), create an object array
+                        self.npy_data = np.array(npy_data, dtype=object)
+                else:
+                    # For regular numpy arrays, keep original logic
+                    self.npy_data = np.array(npy_data)
                 assert(annotation is False)
             else:
                 self.npy_data = np.load(npy_data)

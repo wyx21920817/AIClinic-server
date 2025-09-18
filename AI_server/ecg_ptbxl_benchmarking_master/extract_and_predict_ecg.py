@@ -251,6 +251,12 @@ WEIGHTS_FILE_ORIG = os.path.join(
 )
 DATA_DIR_ORIG   = os.path.join(BASE_PATH_ORIG, 'data')  # standard_scaler.pkl & mlb.pkl
 
+# 3. Configure 13-class model paths
+BASE_PATH_13   = os.path.join(HERE, 'output', 'exp_13class_smart_multilabel')
+MODELS_DIR_13  = os.path.join(BASE_PATH_13, 'models')
+WEIGHTS_FILE_13 = os.path.join(MODELS_DIR_13, 'fastai_xresnet1d101_13class_smart.pth')
+DATA_DIR_13    = os.path.join(BASE_PATH_13, 'data')  # standard_scaler.pkl & mlb.pkl
+
 def extract_ecg_from_dicom(dicom_file):
     """
     从 DICOM 的 WaveformSequence 提取 ECG 信号，返回 shape=(samples, channels) 的 np.array
@@ -299,7 +305,7 @@ def build_class_map(mlb):
     """
     return {i:cls for i,cls in enumerate(mlb.classes_)}
 
-def process_and_predict(dicom_file, class_type="subclass"):
+def process_and_predict(dicom_file, class_type="13class"):
     """
     处理DICOM文件并进行ECG预测
     
@@ -310,17 +316,20 @@ def process_and_predict(dicom_file, class_type="subclass"):
     返回:
         预测结果字典 {label: probability}
     """
-    if class_type not in ["superclass", "subclass"]:
-        raise ValueError('class_type must be "superclass" or "subclass"')
+    if class_type not in ["superclass", "subclass", "13class"]:
+        raise ValueError('class_type must be "superclass", "subclass" or "13class"')
     
     print(f"🎯 Prediction type: {class_type}")
     
     if class_type == "superclass":
         # Use fine-tuned model to predict 5 superclasses
         return _predict_superclass(dicom_file)
-    else:
+    elif class_type == "subclass":
         # Use original model to predict 71 subclasses, then map to target categories
         return _predict_subclass(dicom_file)
+    else:
+        # Default 13-class model prediction
+        return _predict_13class(dicom_file)
 
 def _predict_superclass(dicom_file):
     """Use fine-tuned model to predict superclasses (5 classes)"""
@@ -415,14 +424,66 @@ def _predict_subclass(dicom_file):
     return mapped_result
 
 
+def _predict_13class(dicom_file):
+    """Use 13-class model to predict target classes directly (13 classes)."""
+    # Reuse subclass utilities for robustness
+    set_seed_128()
+
+    # -- 1. Load scaler and mlb (13-class)
+    scaler, mlb = load_scaler_and_mlb(DATA_DIR_13, "13class")
+    idx2name   = build_class_map(mlb)
+    n_out      = len(mlb.classes_)
+
+    # -- 2. Extract ECG
+    ecg = extract_ecg_from_dicom(dicom_file)
+
+    # -- 3. Preprocess to (12, N) normalized
+    sig = ecg.astype(np.float32).T
+    sig = sig / 1000.0
+    sig, scaler = preprocess_signal_128(sig, scaler)
+    x   = torch.from_numpy(sig).unsqueeze(0)
+
+    # -- 4. Load 13-class model
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model  = load_model_128(WEIGHTS_FILE_13, n_in=12, n_out=n_out, device=device)
+    if model is None:
+        raise RuntimeError("Failed to load 13-class model")
+
+    # -- 5. Inference (multi-label probabilities with sigmoid)
+    x = x.to(device)
+    with torch.no_grad():
+        logits = model(x)
+        probs  = torch.sigmoid(logits)[0].cpu().numpy()
+
+    # -- 6. Build original prediction dict (top-5 for display)
+    idxs = np.argsort(probs)[::-1]
+    original_result = {}
+    print(f"\nDICOM: {dicom_file}")
+    print("Original prediction results (13 classes):")
+    for i in idxs[:5]:
+        original_result[idx2name[i]] = float(probs[i])
+        print(f"  {idx2name[i]:15s} prob={probs[i]:.3f}")
+
+    # -- 7. Map to teacher-focused categories (merge LBBB/RBBB, rename AVB)
+    disease_mapping = get_disease_mapping()
+    mapped_result = map_diseases_to_categories(original_result, disease_mapping)
+
+    print("\nMapped prediction results (target disease categories):")
+    for category, prob in mapped_result.items():
+        if prob > 0:
+            print(f"  {category:15s} prob={prob:.3f}")
+
+    return mapped_result
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print("Usage: python extract_and_predict_ecg.py <dicom_path> [class_type]")
-        print("class_type: superclass (5 classes) or subclass (71 classes), default is subclass")
+        print("class_type: superclass | subclass | 13class (default: 13class)")
         sys.exit(1)
 
     dicom_path = sys.argv[1]
-    class_type = sys.argv[2] if len(sys.argv) > 2 else "subclass"
+    class_type = sys.argv[2] if len(sys.argv) > 2 else "13class"
     
     # Process DICOM file and get prediction results (dictionary type)
     try:

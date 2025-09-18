@@ -7,7 +7,7 @@ from scipy.ndimage import zoom
 from scipy.io import loadmat
 from stratisfy import stratisfy_df
 
-output_folder = 'data/ICBEB/'
+output_folder = '../../data/ICBEB/'
 output_datafolder_100 = output_folder+ '/records100/'
 output_datafolder_500 = output_folder+ '/records500/'
 if not os.path.exists(output_folder):
@@ -27,7 +27,7 @@ def store_as_wfdb(signame, data, sigfolder, fs):
                 fmt = ['16']*len(channel_itos), 
                 write_dir=sigfolder)  
 
-df_reference = pd.read_csv('tmp_data/REFERENCE.csv')
+df_reference = pd.read_csv('../../data/tmp_data/REFERENCE.csv')
 
 label_dict = {1:'NORM', 2:'AFIB', 3:'1AVB', 4:'CLBBB', 5:'CRBBB', 6:'PAC', 7:'VPC', 8:'STD_', 9:'STE_'}
 
@@ -35,12 +35,12 @@ data = {'ecg_id':[], 'filename':[], 'validation':[], 'age':[], 'sex':[], 'scp_co
 
 ecg_counter = 0
 for folder in ['TrainingSet1', 'TrainingSet2', 'TrainingSet3']:
-    filenames = os.listdir('tmp_data/'+folder)
+    filenames = os.listdir('../../data/tmp_data/'+folder)
     for filename in tqdm(filenames):
         if filename.split('.')[1] == 'mat':
             ecg_counter += 1
             name = filename.split('.')[0]
-            sex, age, sig = loadmat('tmp_data/'+folder+'/'+filename)['ECG'][0][0]
+            sex, age, sig = loadmat('../../data/tmp_data/'+folder+'/'+filename)['ECG'][0][0]
             data['ecg_id'].append(ecg_counter)
             data['filename'].append(name)
             data['validation'].append(False)

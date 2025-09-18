@@ -10,6 +10,20 @@ from fastai.callbacks.tracker import SaveModelCallback
 
 from pathlib import Path
 from functools import partial
+import torch
+
+# Fix the weights_only change introduced in PyTorch 2.6
+import torch.serialization
+# Temporarily keep the original torch.load function
+_original_torch_load = torch.load
+
+def _patched_torch_load(*args, **kwargs):
+    # Force weights_only=False for backward compatibility with older checkpoints
+    kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+# Patch torch.load
+torch.load = _patched_torch_load
 
 from models.resnet1d import resnet1d18,resnet1d34,resnet1d50,resnet1d101,resnet1d152,resnet1d_wang,resnet1d,wrn1d_22
 from models.xresnet1d import xresnet1d18,xresnet1d34,xresnet1d50,xresnet1d101,xresnet1d152,xresnet1d18_deep,xresnet1d34_deep,xresnet1d50_deep,xresnet1d18_deeper,xresnet1d34_deeper,xresnet1d50_deeper
@@ -156,7 +170,7 @@ def losses_plot(learner, path, filename="losses", last:int=None):
     plt.switch_backend(backend_old)
 
 class fastai_model(ClassificationModel):
-    def __init__(self,name,n_classes,freq,outputfolder,input_shape,pretrained=False,input_size=2.5,input_channels=12,chunkify_train=False,chunkify_valid=True,bs=128,ps_head=0.5,lin_ftrs_head=[128],wd=1e-2,epochs=50,lr=1e-2,kernel_size=5,loss="binary_cross_entropy",pretrainedfolder=None,n_classes_pretrained=None,gradual_unfreezing=True,discriminative_lrs=True,epochs_finetuning=30,early_stopping=None,aggregate_fn="max",concat_train_val=False):
+    def __init__(self,name,n_classes,freq,outputfolder,input_shape,pretrained=False,input_size=2.5,input_channels=12,chunkify_train=False,chunkify_valid=True,bs=128,ps_head=0.5,lin_ftrs_head=[128],wd=1e-2,epochs=50,lr=1e-2,kernel_size=5,loss="binary_cross_entropy",pretrainedfolder=None,n_classes_pretrained=None,gradual_unfreezing=True,discriminative_lrs=True,epochs_finetuning=30,early_stopping=None,aggregate_fn="max",concat_train_val=False,bce_pos_weight=None):
         super().__init__()
         
         self.name = name
@@ -205,6 +219,8 @@ class fastai_model(ClassificationModel):
         self.early_stopping = early_stopping
         self.aggregate_fn = aggregate_fn
         self.concat_train_val = concat_train_val
+        # Optional BCE per-class positive weights (list/np.ndarray)
+        self.bce_pos_weight = bce_pos_weight
 
     def fit(self, X_train, y_train, X_val, y_val):
         #convert everything to float32
@@ -312,7 +328,15 @@ class fastai_model(ClassificationModel):
         db = DataBunch.create(ds_train,ds_valid,bs=self.bs, num_workers=0)
 
         if(self.loss == "binary_cross_entropy"):
-            loss = F.binary_cross_entropy_with_logits
+            if self.bce_pos_weight is not None:
+                # make tensor on the same device as model later via closure
+                pos_w_np = np.array(self.bce_pos_weight, dtype=np.float32)
+                def _bce_with_pos_weight(input, target):
+                    pos_w = torch.as_tensor(pos_w_np, device=input.device)
+                    return F.binary_cross_entropy_with_logits(input, target, pos_weight=pos_w)
+                loss = _bce_with_pos_weight
+            else:
+                loss = F.binary_cross_entropy_with_logits
         elif(self.loss == "cross_entropy"):
             loss = F.cross_entropy
         elif(self.loss == "mse"):
@@ -419,3 +443,62 @@ class fastai_model(ClassificationModel):
                 learn.callback_fns.append(partial(SaveModelCallback, monitor=self.early_stopping, every='improvement', name=self.name))
             
         return learn
+
+    
+    def load_finetuned_weights_with_class_mapping(self, finetuned_state_dict, 
+                                                finetuned_classes, target_classes):
+        """加载微调模型权重，只加载匹配类别的权重"""
+        # Get current model state
+        current_state_dict = self.model.state_dict()
+        
+        # Build class mapping
+        class_mapping = {}
+        for i, target_class in enumerate(target_classes):
+            if target_class in finetuned_classes:
+                finetuned_idx = finetuned_classes.index(target_class)
+                class_mapping[finetuned_idx] = i
+                print(f"✅ Class mapping: {target_class} (finetuned_idx={finetuned_idx} -> target_idx={i})")
+        
+        # Create new state dict
+        new_state_dict = {}
+        
+        for name, param in finetuned_state_dict.items():
+            if name in current_state_dict:
+                current_param = current_state_dict[name]
+                
+                if param.shape == current_param.shape:
+                    # Shape matches: load directly
+                    new_state_dict[name] = param
+                    print(f"✅ Loaded layer: {name} {param.shape}")
+                elif 'weight' in name and len(param.shape) == 2 and len(current_param.shape) == 2:
+                    # Remap output layer weights
+                    if param.shape[0] == len(finetuned_classes) and current_param.shape[0] == len(target_classes):
+                        # Remap output layer weights
+                        mapped_weight = torch.zeros_like(current_param)
+                        for finetuned_idx, target_idx in class_mapping.items():
+                            mapped_weight[target_idx] = param[finetuned_idx]
+                        new_state_dict[name] = mapped_weight
+                        print(f"✅ Mapped output layer: {name} {param.shape} -> {mapped_weight.shape}")
+                    else:
+                        print(f"⚠️ Skipped layer (unexpected shape): {name} {param.shape} vs {current_param.shape}")
+                elif 'bias' in name and len(param.shape) == 1 and len(current_param.shape) == 1:
+                    # Remap output layer bias
+                    if param.shape[0] == len(finetuned_classes) and current_param.shape[0] == len(target_classes):
+                        # Remap output layer bias
+                        mapped_bias = torch.zeros_like(current_param)
+                        for finetuned_idx, target_idx in class_mapping.items():
+                            mapped_bias[target_idx] = param[finetuned_idx]
+                        new_state_dict[name] = mapped_bias
+                        print(f"✅ Mapped output bias: {name} {param.shape} -> {mapped_bias.shape}")
+                    else:
+                        print(f"⚠️ Skipped layer (unexpected shape): {name} {param.shape} vs {current_param.shape}")
+                else:
+                    print(f"⚠️ Skipped layer (shape mismatch): {name} {param.shape} vs {current_param.shape}")
+            else:
+                print(f"⚠️ Skipped layer (not found): {name}")
+        
+        # Load remapped weights
+        self.model.load_state_dict(new_state_dict, strict=False)
+        print(f"✅ Loaded {len(new_state_dict)} layers from finetuned model")
+        
+        return new_state_dict

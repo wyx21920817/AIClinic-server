@@ -125,11 +125,31 @@ def generate_avb3_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
         analysis_results['criteria_failed'].append('insufficient_p_detections')
         metrics['notes'] = 'insufficient_p_detections'
 
+    # Build summary/statistics
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(analysis_results.get('diagnosis','').startswith('Complete') or analysis_results.get('diagnosis','').endswith('AV Block')),
+        'abnormality_count': 1 if analysis_results.get('diagnosis','') else 0,
+    }
+    statistics = {
+        'conduction_ratio': metrics.get('conduction_ratio'),
+        'pp_rate_bpm': metrics.get('pp_rate_bpm'),
+        'rr_rate_bpm': metrics.get('rr_rate_bpm'),
+        'pr_cv': metrics.get('pr_cv'),
+        'phase_lock_corr': metrics.get('phase_lock_corr'),
+        'pp_cv': analysis_results.get('pp_cv'),
+        'rr_cv': analysis_results.get('rr_cv'),
+        'confidence': metrics.get('confidence'),
+        'dissociation_score': metrics.get('dissociation_score'),
+        'complete_av_block': metrics.get('complete_av_block'),
+    }
+
     return {
         'title': ecg_title,
         'lead_name': lead_name,
         'report_text': report_text,
-        'metrics': metrics,
+        'summary': summary,
+        'statistics': statistics,
         'image_paths': image_paths
     }
 

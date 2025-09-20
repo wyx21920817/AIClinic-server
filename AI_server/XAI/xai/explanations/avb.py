@@ -197,11 +197,29 @@ def generate_avb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output
         "signal_duration_s": float(len(ecg_cleaned) / sampling_rate)
     }
     
+    # Build concise summary/statistics
+    prolonged = int(np.sum(pr_intervals > 0.20))
+    total = int(len(pr_intervals))
+    present = bool(metrics["pr_mean_s"] > 0.20 and (prolonged / total if total else 0.0) >= 0.8)
+    summary = {
+        "report_text": report_text,
+        "is_abnormality_present": present,
+        "abnormality_count": int(prolonged if present else 0),
+    }
+    statistics = {
+        "total_beats": total,
+        "pr_mean_s": metrics["pr_mean_s"],
+        "pr_min_s": metrics["pr_min_s"],
+        "pr_max_s": metrics["pr_max_s"],
+        "prolonged_pr_count": prolonged,
+    }
+    
     report_data = {
         "title": ecg_title, 
         "lead_name": lead_name, 
         "report_text": report_text, 
-        "metrics": metrics, 
+        "summary": summary,
+        "statistics": statistics,
         "image_paths": ["avb1_pr_intervals_enhanced.png", "avb1_enhanced_analysis.png"]
     }
     

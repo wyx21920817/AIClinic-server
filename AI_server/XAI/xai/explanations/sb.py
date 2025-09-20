@@ -6,7 +6,7 @@ from ..ecg_utils import plot_ecg_with_grid
 
 
 def generate_sb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
-    """Sinus Bradycardia (SB) visualization and metrics.
+    """Sinus Bradycardia (SBRAD) visualization and metrics.
 
     Criteria (simple): sustained HR < 60 bpm (RR > 1.0 s) for a significant portion of beats.
     Visuals:
@@ -85,13 +85,19 @@ def generate_sb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
         f"- Avg HR: {avg_hr:.1f} bpm; brady beats: {brady_ratio*100:.0f}%.\n"
         f"- HR timeline shows threshold at 60 bpm; RR histogram shades >1.0 s."
     )
-
+    summary = {
+        'report_text': report,
+        'is_abnormality_present': bool(avg_hr < 60 or brady_ratio > 0.5),
+        'abnormality_count': int(np.sum(rr > 1.0)) if rr.size else 0,
+    }
+    statistics = metrics
     return {
-        "title": ecg_title,
-        "lead_name": lead_name,
-        "report_text": report,
-        "metrics": metrics,
-        "image_paths": ["sinus_bradycardia_analysis.png"],
+        'title': ecg_title,
+        'lead_name': lead_name,
+        'report_text': report,
+        'summary': summary,
+        'statistics': statistics,
+        'image_paths': ['sinus_bradycardia_analysis.png'],
     }
 
 

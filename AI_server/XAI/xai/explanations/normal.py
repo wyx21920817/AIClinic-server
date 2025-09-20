@@ -87,14 +87,19 @@ def generate_normal_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, out
     # 5) Report
     rr_mean = float(np.mean(rr)) if rr.size else None
     rr_std = float(np.std(rr)) if rr.size else None
-    metrics = {
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': False,
+        'abnormality_count': 0,
+    }
+    statistics = {
         "average_heart_rate_bpm": float(avg_hr),
         "rr_mean_s": rr_mean,
         "rr_std_s": rr_std,
         "rr_cv": rr_cv,
     }
     if qrs_durations:
-        metrics.update({
+        statistics.update({
             "qrs_mean_s": float(np.mean(qrs_durations)),
             "qrs_in_normal_band_count": int(np.sum((np.array(qrs_durations) >= 0.06) & (np.array(qrs_durations) <= 0.11)))
         })
@@ -114,7 +119,8 @@ def generate_normal_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, out
         "title": ecg_title,
         "lead_name": lead_name,
         "report_text": report_text,
-        "metrics": metrics,
+        "summary": summary,
+        "statistics": statistics,
         "image_paths": images,
     }
 

@@ -275,13 +275,19 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
         "deep_s_beats_wide_or_borderline": deepS_wide_or_borderline,
         "qrs_category_counts": category_counts,
     }
-
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(qrs_pool and (qrs_mean >= 0.12) and (rsr_wide_or_borderline > 0) and (deepS_wide_or_borderline > 0)),
+        'abnormality_count': int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0,
+    }
+    statistics = metrics
     return {
-        "title": f"RBBB Screening ({record_name})",
-        "report_text": report_text,
-        "metrics": metrics,
-        "image_paths": {
-            "rbbb_leads_analysis.png": os.path.join(output_dir, "rbbb_leads_analysis.png"),
-            "rbbb_qrs_histogram.png": os.path.join(output_dir, "rbbb_qrs_histogram.png")
+        'title': f'RBBB Screening ({record_name})',
+        'report_text': report_text,
+        'summary': summary,
+        'statistics': statistics,
+        'image_paths': {
+            'rbbb_leads_analysis.png': os.path.join(output_dir, 'rbbb_leads_analysis.png'),
+            'rbbb_qrs_histogram.png': os.path.join(output_dir, 'rbbb_qrs_histogram.png')
         },
     }

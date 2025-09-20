@@ -261,17 +261,23 @@ def generate_avb2_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     ]
     report_text = "\n".join(report_lines)
 
-    metrics = {
-        'pr_mean_s': float(np.mean(pr_intervals)) if pr_intervals.size > 0 else None,
-        'pr_std_s': pr_std,
+    # Build summary/statistics (no legacy metrics)
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(len(dropped_p_indices) >= 1),
+        'abnormality_count': int(len(dropped_p_indices)),
+    }
+    statistics = {
         'total_p_count': int(len(p_onsets)),
         'total_r_count': int(len(r_onsets)),
         'conducted_count': int(len(conducted_pairs)),
         'dropped_p_count': int(len(dropped_p_indices)),
-        'conduction_ratio': overall_conduction_quality,
+        'pr_mean_s': float(np.mean(pr_intervals)) if pr_intervals.size > 0 else None,
+        'pr_std_s': pr_std,
         'wenckebach_seq_count': int(wenckebach_sequences),
         'subtype': subtype,
         'subtype_confidence': subtype_confidence,
+        'conduction_ratio': overall_conduction_quality,
     }
 
     image_paths = ['avb2_overview.png']
@@ -283,6 +289,7 @@ def generate_avb2_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
         'title': ecg_title,
         'lead_name': lead_name,
         'report_text': report_text,
-        'metrics': metrics,
+        'summary': summary,
+        'statistics': statistics,
         'image_paths': image_paths
     }

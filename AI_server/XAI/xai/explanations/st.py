@@ -65,13 +65,20 @@ def generate_st_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
 
     report_text = generate_report_sinus_tachy(ecg_title, lead_name, avg_hr)
     print(report_text)
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(avg_hr > 100 or (rr.size and float(np.mean(rr)) < 0.6)),
+        'abnormality_count': 1 if (avg_hr > 100) else 0,
+    }
+    statistics = {
+        'average_heart_rate_bpm': float(avg_hr),
+        'mean_rr_interval_s': float(np.mean(rr)) if rr.size > 0 else None,
+    }
     return {
-        "title": ecg_title,
-        "lead_name": lead_name,
-        "report_text": report_text,
-        "metrics": {
-            "average_heart_rate_bpm": float(avg_hr),
-            "mean_rr_interval_s": float(np.mean(rr)) if rr.size > 0 else None
-        },
-        "image_paths": {"sinus_tachycardia_analysis.png": os.path.join(output_dir, "sinus_tachycardia_analysis.png")},
+        'title': ecg_title,
+        'lead_name': lead_name,
+        'report_text': report_text,
+        'summary': summary,
+        'statistics': statistics,
+        'image_paths': {'sinus_tachycardia_analysis.png': os.path.join(output_dir, 'sinus_tachycardia_analysis.png')},
     }

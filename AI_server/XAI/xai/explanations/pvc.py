@@ -17,38 +17,54 @@ def _build_qrs_template(ecg_cleaned: np.ndarray, r_idx: np.ndarray, fs: float, m
     win = int(0.12 * fs)
     templates = []
     rr = np.diff(r_idx) / fs if r_idx.size > 1 else np.array([])
+    
+    # Collect more templates for better representation
     for k in range(1, len(r_idx) - 1):
-        # use only narrow likely-sinus beats for template (relaxed width threshold)
-        if k < qrs_widths.size and (not np.isnan(qrs_widths[k])) and qrs_widths[k] < 0.12:
-            ok_prev = (k-1 < len(rr)) and (abs(rr[k-1] - (median_rr or rr[k-1])) <= (0.1 * (median_rr or rr[k-1])))
-            ok_next = (k < len(rr)) and (abs(rr[k] - (median_rr or rr[k])) <= (0.1 * (median_rr or rr[k])))
+        # Use narrow, regular beats for template
+        if k < qrs_widths.size and (not np.isnan(qrs_widths[k])) and qrs_widths[k] < 0.11:
+            # More lenient RR criteria for template building
+            if median_rr:
+                ok_prev = (k-1 < len(rr)) and (abs(rr[k-1] - median_rr) <= (0.15 * median_rr))
+                ok_next = (k < len(rr)) and (abs(rr[k] - median_rr) <= (0.15 * median_rr))
+            else:
+                ok_prev = ok_next = True
+                
             if ok_prev and ok_next:
                 s = max(0, r_idx[k] - win)
                 e = min(len(ecg_cleaned), r_idx[k] + win)
                 seg = ecg_cleaned[s:e]
                 if seg.size == 2 * win:
+                    # Normalize segment
                     v = seg - np.mean(seg)
                     n = np.linalg.norm(v) + 1e-8
                     templates.append(v / n)
-        if len(templates) >= 5:
+        
+        # Collect up to 10 templates for better averaging
+        if len(templates) >= 10:
             break
-    return np.mean(templates, axis=0) if templates else None
+    
+    if len(templates) >= 2:
+        # Use median template to be robust against outliers
+        template_stack = np.array(templates)
+        return np.median(template_stack, axis=0)
+    else:
+        return None
 
 
 def _estimate_qrs_onset_offsets(ecg: np.ndarray, r_idx: np.ndarray, fs: float):
-    """Simplified QRS onset/offset detection using amplitude thresholds.
-    - Onset: first point before R where signal drops below 10% of R-peak amplitude
-    - Offset: first point after R where signal drops below 10% of R-peak amplitude
-    - Use fixed windows to avoid edge cases
+    """Improved QRS onset/offset detection using gradient and amplitude changes.
+    - Focus on steep slopes and avoid T-wave contamination
+    - Use more conservative search windows
+    - Apply stricter amplitude and slope criteria
     """
     n = len(ecg)
     onset_idx = np.full(len(r_idx), -1, dtype=int)
     offset_idx = np.full(len(r_idx), -1, dtype=int)
     width_s = np.full(len(r_idx), np.nan, dtype=float)
 
-    # Fixed search windows
-    left_win = int(0.12 * fs)  # 120ms before R
-    right_win = int(0.20 * fs)  # 200ms after R
+    # Conservative search windows to avoid T-wave
+    left_win = int(0.08 * fs)   # 80ms before R
+    right_win = int(0.10 * fs)  # 100ms after R
 
     for i, r in enumerate(r_idx):
         s = max(0, r - left_win)
@@ -61,39 +77,48 @@ def _estimate_qrs_onset_offsets(ecg: np.ndarray, r_idx: np.ndarray, fs: float):
         seg = ecg[s:e]
         r_rel = r - s  # R-peak position in segment
         
-        if r_rel >= len(seg):
+        if r_rel >= len(seg) or r_rel <= 0:
             continue
             
-        # R-peak amplitude
+        # Use both amplitude and derivative criteria
         r_amp = abs(ecg[r])
         if r_amp < 1e-6:
             continue
             
-        # Threshold: 10% of R-peak amplitude
-        threshold = 0.1 * r_amp
+        # More stringent threshold: 25% of R-peak amplitude
+        amp_threshold = 0.25 * r_amp
+        
+        # Calculate gradient for slope detection
+        grad = np.gradient(seg)
+        grad_threshold = 0.1 * np.max(np.abs(grad)) if len(grad) > 0 else 0.0
         
         # Onset: scan backward from R-peak
         li = r
-        for kidx in range(r_rel, 0, -1):
-            if abs(seg[kidx]) < threshold:
+        for kidx in range(r_rel, max(0, r_rel - int(0.06 * fs)), -1):
+            if kidx < len(seg) and (abs(seg[kidx]) < amp_threshold or abs(grad[kidx]) < grad_threshold):
                 li = s + kidx
                 break
         
-        # Offset: scan forward from R-peak
+        # Offset: scan forward from R-peak  
         ri = r
-        for kidx in range(r_rel, len(seg)):
-            if abs(seg[kidx]) < threshold:
+        for kidx in range(r_rel, min(len(seg), r_rel + int(0.08 * fs))):
+            if abs(seg[kidx]) < amp_threshold or abs(grad[kidx]) < grad_threshold:
                 ri = s + kidx
                 break
         
         onset_idx[i] = li
         offset_idx[i] = ri
         
-        # Calculate width
+        # Calculate width with sanity checks
         if ri > li:
-            width_s[i] = (ri - li) / fs
+            calculated_width = (ri - li) / fs
+            # Sanity check: normal QRS should be 0.06-0.12s, PVC can be wider
+            if 0.04 <= calculated_width <= 0.25:
+                width_s[i] = calculated_width
+            else:
+                # Use conservative estimate based on signal type
+                width_s[i] = 0.08 if calculated_width < 0.10 else min(calculated_width, 0.16)
         else:
-            # Fallback: use fixed width based on signal characteristics
             width_s[i] = 0.08  # Default 80ms for narrow QRS
     
     return onset_idx, offset_idx, width_s
@@ -101,8 +126,44 @@ def _estimate_qrs_onset_offsets(ecg: np.ndarray, r_idx: np.ndarray, fs: float):
 
 def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = None):
     try:
+        # Try primary detection
         _, rpeaks = nk.ecg_peaks(ecg_cleaned, sampling_rate=fs, method="neurokit")
         r_idx = np.asarray(rpeaks['ECG_R_Peaks'], dtype=int)
+        
+        # Additional peak detection for missed beats (especially negative PVCs)
+        from scipy.signal import find_peaks
+        # Look for prominent negative peaks that might be missed PVCs
+        signal_std = np.std(ecg_cleaned)
+        signal_range = np.max(ecg_cleaned) - np.min(ecg_cleaned)
+        
+        # Use adaptive prominence based on signal characteristics
+        neg_prominence = max(0.2*signal_std, 0.1*signal_range)
+        neg_peaks, neg_props = find_peaks(-ecg_cleaned, 
+                                         distance=int(0.25*fs),  # 250ms minimum distance
+                                         prominence=neg_prominence,
+                                         width=2)  # minimum width
+        
+        # Also look for very wide negative deflections that might be missed
+        wide_neg_peaks, _ = find_peaks(-ecg_cleaned,
+                                      distance=int(0.3*fs),
+                                      prominence=0.5*neg_prominence,
+                                      width=int(0.08*fs))  # at least 80ms wide
+        
+        # Combine negative peak candidates
+        all_neg_peaks = np.unique(np.concatenate([neg_peaks, wide_neg_peaks])) if wide_neg_peaks.size > 0 else neg_peaks
+        
+        # Merge with existing R-peaks if they don't overlap
+        additional_peaks = []
+        for peak in all_neg_peaks:
+            # Check if this negative peak is far enough from existing R-peaks
+            if not np.any(np.abs(r_idx - peak) < int(0.12*fs)):  # 120ms minimum separation
+                # Additional check: ensure it's significantly negative
+                if ecg_cleaned[peak] < -0.5*signal_std:
+                    additional_peaks.append(peak)
+        
+        if additional_peaks:
+            r_idx = np.sort(np.concatenate([r_idx, additional_peaks]))
+        
     except Exception:
         r_idx = np.array([], dtype=int)
 
@@ -161,8 +222,8 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
         if baseline_rr and i_prev < len(rr):
             ratio_to_baseline = rr[i_prev] / baseline_rr
             ratio_to_prev = rr[i_prev] / max(rr[i_prev-1], 1e-6) if i_prev-1 >= 0 else ratio_to_baseline
-            # increase sensitivity slightly per feedback
-            is_premature = (ratio_to_baseline < 0.95) or (ratio_to_prev < 0.85)
+            # increase sensitivity for true PVCs
+            is_premature = (ratio_to_baseline < 0.88) or (ratio_to_prev < 0.80)
         # Width assessment
         qrs_w = qrs_widths[beat_idx] if beat_idx < qrs_widths.size else np.nan
         is_wide_core = bool((not np.isnan(qrs_w)) and (qrs_w >= qrs_threshold_s))
@@ -170,12 +231,23 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
         is_wide = is_wide_core
         compensatory = False
         if (i_prev < len(rr)) and (i_next < len(rr)) and median_rr:
-            # Compensatory pause must follow a short RR and be followed by a long RR around baseline
-            rr_prev = rr[i_prev]
-            rr_next = rr[i_next]
-            was_short = rr_prev <= (0.90 * median_rr)
-            is_long = rr_next >= (1.10 * median_rr)
-            compensatory = bool(was_short and is_long and ((rr_prev + rr_next) >= (1.80 * median_rr)))
+            # Compensatory pause: current RR short, next RR long, sum > baseline expectation
+            rr_prev = rr[i_prev]  # RR leading to this beat
+            rr_next = rr[i_next]  # RR following this beat
+            
+            # Adaptive thresholds based on heart rate
+            if median_rr < 0.5:  # Fast heart rate (>120 bpm)
+                short_threshold = 0.75 * median_rr
+                long_threshold = 1.4 * median_rr
+                sum_threshold = 1.8 * median_rr
+            else:  # Normal/slow heart rate
+                short_threshold = 0.80 * median_rr
+                long_threshold = 1.3 * median_rr
+                sum_threshold = 1.9 * median_rr
+            
+            was_short = rr_prev <= short_threshold
+            is_long = rr_next >= long_threshold
+            compensatory = bool(was_short and is_long and ((rr_prev + rr_next) >= sum_threshold))
         # Do not hard prefilter here; we may discover dominant negative complexes between R-peaks.
 
         # Scores
@@ -201,12 +273,31 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
                 width_score = float(0.6 + (qrs_w - 0.12) * (0.4 / 0.04))
             elif qrs_w >= 0.16:
                 width_score = 1.0
-        # morphology abnormality (1 - similarity)
-        morph_abn = 0.5
-        if qrs_template is not None and 0 < r_idx[beat_idx] - win and r_idx[beat_idx] + win <= len(ecg_cleaned):
-            seg = ecg_cleaned[r_idx[beat_idx]-win:r_idx[beat_idx]+win]
-            sim = _xcorr_max_norm(qrs_template, seg, max_lag=int(0.02*fs))
-            morph_abn = float(np.clip(1.0 - sim, 0.0, 1.0))
+        # morphology abnormality (1 - similarity with adaptive scaling)
+        morph_abn = 0.5  # default fallback
+        if qrs_template is not None and qrs_template.size > 0:
+            # Ensure we have valid bounds
+            seg_start = max(0, r_idx[beat_idx] - win)
+            seg_end = min(len(ecg_cleaned), r_idx[beat_idx] + win)
+            if seg_end > seg_start:
+                seg = ecg_cleaned[seg_start:seg_end]
+                if seg.size > 0 and seg.size == qrs_template.size:
+                    try:
+                        sim = _xcorr_max_norm(qrs_template, seg, max_lag=int(0.02*fs))
+                        if not np.isnan(sim) and sim >= 0:
+                            # Adaptive morphology scoring:
+                            # High similarity (>0.8) -> low abnormality (0-0.2)
+                            # Medium similarity (0.5-0.8) -> medium abnormality (0.2-0.5)
+                            # Low similarity (<0.5) -> high abnormality (0.5-1.0)
+                            if sim >= 0.8:
+                                morph_abn = float(0.2 * (1.0 - sim) / 0.2)  # 0-0.2 range
+                            elif sim >= 0.5:
+                                morph_abn = float(0.2 + 0.3 * (0.8 - sim) / 0.3)  # 0.2-0.5 range
+                            else:
+                                morph_abn = float(0.5 + 0.5 * (0.5 - sim) / 0.5)  # 0.5-1.0 range
+                            morph_abn = np.clip(morph_abn, 0.0, 1.0)
+                    except Exception:
+                        pass  # keep default morph_abn = 0.5
         # Dominant negative S-wave within QRS and across inter-beat interval
         s_qrs = int(on_idx[beat_idx]) if beat_idx < len(on_idx) and on_idx[beat_idx] >= 0 else int(max(0, r_idx[beat_idx] - int(0.08*fs)))
         e_qrs = int(off_idx[beat_idx]) if beat_idx < len(off_idx) and off_idx[beat_idx] >= 0 else int(min(len(ecg_cleaned), r_idx[beat_idx] + int(0.12*fs)))
@@ -345,30 +436,44 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
             }
         }
 
-        # Classification rules (enhanced)
-        soft_nonprem = (is_wide and (morph_abn >= 0.90) and (p_absence_score >= 0.9) and not is_premature)
-        width_min_for_morph = (not np.isnan(qrs_w)) and (qrs_w >= 0.12)
-        # Only allow morphology path if also negative-dominant or P absent
-        morph_gate = ((morph_abn >= 0.95) and (s_dominant or forced_wide_from_negative or (p_absence_score >= 0.9)))
-        is_wide_or_morph = (
-            is_wide_core or
-            (is_wide_border and (morph_abn >= 0.90) and (s_dominant or forced_wide_from_negative or v1_support or (p_absence_score >= 0.9))) or
-            (width_min_for_morph and (morph_gate or v1_support))
+        # Classification rules (balanced sensitivity and specificity)
+        # Core PVC criteria: premature + (truly wide OR highly morphologically abnormal)
+        # For borderline wide QRS (120-130ms), require higher morphological abnormality
+        borderline_wide = (not np.isnan(qrs_w)) and (0.12 <= qrs_w < 0.13)
+        if borderline_wide:
+            # For 120ms QRS, require very high morphological abnormality AND supporting evidence
+            core_pvc = is_premature and (is_wide_core or (morph_abn >= 0.9 and (compensatory or neg_dom_ratio >= 1.5)))
+        else:
+            core_pvc = is_premature and (is_wide_core or (morph_abn >= 0.75))
+        
+        # Strong morphological evidence (with additional validation for extreme scores)
+        strong_morph = (
+            # Strong negative dominance in Lead II with adequate width
+            (neg_dom_ratio >= 1.4 and ((neg_width_s or 0.0) >= 0.08)) or
+            # V1 support with morphological abnormality
+            (v1_support and (morph_abn >= 0.8)) or
+            # Very high morphological abnormality with strong supporting evidence
+            (morph_abn >= 0.98 and (is_wide_core or (neg_dom_ratio >= 1.8 and neg_width_s and neg_width_s >= 0.10) or p_absence_score >= 0.7))
         )
-        s_support = (forced_wide_from_negative or v1_support or (neg_dom_ratio >= 1.25)) and (is_wide_border or is_wide_core or morph_abn >= 0.95)
-        very_wide = (not np.isnan(qrs_w)) and (qrs_w >= 0.16) and (morph_abn >= 0.95) and (p_absence_score >= 0.9)
-        # Negative-dominant strong rule for giant negative waves (no prematurity required)
-        negative_pvc_strong = (
-            # II: strong negative dominance with measurable width
-            (neg_dom_ratio >= 1.60 and ((neg_width_s or 0.0) >= 0.06) and (morph_abn >= 0.90)) or
-            # II: early dominant negative even if width under-estimated
-            (is_premature and (neg_dom_ratio >= 1.90) and (morph_abn >= 0.96)) or
-            # V1: strong negative dominance with width
-            (v1_support and (morph_abn >= 0.90)) or
-            # V1: early dominant negative even if宽度偏小
-            (is_premature and (v1_neg_dom_ratio >= 1.90) and (morph_abn >= 0.96))
+        
+        # Compensatory pause support (premature + compensatory + some morphological change)
+        compensatory_support = is_premature and compensatory and (morph_abn >= 0.6)
+        
+        # Very wide QRS (likely PVC) - require significantly wide QRS
+        very_wide = (not np.isnan(qrs_w)) and (qrs_w >= 0.14) and (morph_abn >= 0.8)
+        
+        # Obvious PVC pattern: premature + no P + morphological abnormality + supporting evidence
+        obvious_pvc = (is_premature and (p_absence_score >= 0.8) and (morph_abn >= 0.7) and 
+                      (is_wide_core or compensatory or neg_dom_ratio >= 1.2))
+        
+        # Classic PVC with compensatory pause (strong clinical indicator)
+        classic_pvc = is_premature and compensatory and (morph_abn >= 0.5) and (
+            is_wide_core or (neg_dom_ratio >= 0.9) or (p_absence_score >= 0.7)
         )
-        classified = ((is_wide_or_morph and (is_premature or compensatory)) or very_wide or negative_pvc_strong or soft_nonprem)
+        
+        # Final classification with balanced criteria
+        classified = (core_pvc or very_wide or obvious_pvc or classic_pvc or 
+                     (strong_morph and is_premature))
         cand['classified_as_pvc'] = bool(classified)
         # Always store event index/time for consistent plotting
         cand['event_index'] = int(s_min_idx)
@@ -419,7 +524,7 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
 def _xcorr_max_norm(a: np.ndarray, b: np.ndarray, max_lag: int) -> float:
     """Return max normalized cross-correlation between a and b within +/- max_lag samples.
     Inputs must be 1D arrays. Returns value in [0,1]."""
-    if a.size < 3 or b.size < 3:
+    if a.size < 5 or b.size < 5:
         return 0.0
     
     # Ensure both arrays have the same length
@@ -427,41 +532,44 @@ def _xcorr_max_norm(a: np.ndarray, b: np.ndarray, max_lag: int) -> float:
     a = a[:min_len]
     b = b[:min_len]
     
-    # Normalize arrays
+    # Normalize arrays (zero mean, unit variance)
     a = a - np.mean(a)
     b = b - np.mean(b)
-    na = np.linalg.norm(a) + 1e-8
-    nb = np.linalg.norm(b) + 1e-8
-    a = a / na
-    b = b / nb
     
-    # Test both polarities
-    sims = []
-    for bb in (b, -b):
-        # Compute correlation for different lags
-        for lag in range(-max_lag, max_lag + 1):
-            if lag >= 0:
-                x = a[lag:]
-                y = bb[:len(a) - lag]
-            else:
-                x = a[:len(a) + lag]
-                y = bb[-lag:]
-            
-            if len(x) < 3 or len(y) < 3:
-                continue
-                
-            # Use minimum length to avoid size mismatch
-            min_len = min(len(x), len(y))
-            x = x[:min_len]
-            y = y[:min_len]
-            
-            # Calculate normalized correlation
-            corr = np.dot(x, y) / len(x)
-            sims.append(float(corr))
+    # Use standard deviation for normalization to preserve shape information
+    std_a = np.std(a) + 1e-8
+    std_b = np.std(b) + 1e-8
+    a = a / std_a
+    b = b / std_b
     
-    if not sims:
-        return 0.0
-    return float(np.clip(max(sims), 0.0, 1.0))
+    # Only test same polarity for morphology comparison
+    # (PVCs should have different morphology, not just inverted)
+    max_corr = 0.0
+    
+    # Compute correlation for different lags
+    for lag in range(-max_lag, max_lag + 1):
+        if lag >= 0:
+            x = a[lag:]
+            y = b[:len(a) - lag]
+        else:
+            x = a[:len(a) + lag]
+            y = b[-lag:]
+        
+        if len(x) < 5 or len(y) < 5:
+            continue
+            
+        # Use minimum length to avoid size mismatch
+        min_len = min(len(x), len(y))
+        x = x[:min_len]
+        y = y[:min_len]
+        
+        # Calculate Pearson correlation coefficient
+        if min_len > 1:
+            corr = np.corrcoef(x, y)[0, 1]
+            if not np.isnan(corr):
+                max_corr = max(max_corr, corr)
+    
+    return float(np.clip(max_corr, 0.0, 1.0))
 
 
 def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title: str, lead_name: str, output_dir: str, aux_v1: np.ndarray | None = None, meta: dict | None = None):
@@ -766,7 +874,7 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     }
 
     # Optional debug block via env
-    dbg = os.getenv('XAI_DEBUG_VERBOSE', '0')
+    dbg = os.getenv('XAI_DEBUG_VERBOSE', '1')
     if dbg not in ('0', 'false', 'False', None):
         out['debug_details'] = {
             'candidates_analysis': candidates,

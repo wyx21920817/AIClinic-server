@@ -74,11 +74,6 @@ def generate_sb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
 
     plt.tight_layout(); plt.savefig(os.path.join(output_dir, "sinus_bradycardia_analysis.png"), dpi=160); plt.close(fig)
 
-    metrics = {
-        "average_heart_rate_bpm": float(avg_hr),
-        "mean_rr_interval_s": float(np.mean(rr)) if rr.size else None,
-        "brady_ratio": brady_ratio,
-    }
     report = (
         f"\nObs for {ecg_title} ({lead_name}):\n"
         f"- HR < 60 bpm or RR > 1.0 s considered bradycardia.\n"
@@ -90,7 +85,11 @@ def generate_sb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
         'is_abnormality_present': bool(avg_hr < 60 or brady_ratio > 0.5),
         'abnormality_count': int(np.sum(rr > 1.0)) if rr.size else 0,
     }
-    statistics = metrics
+    statistics = {
+        "average_heart_rate_bpm": float(avg_hr),
+        "mean_rr_interval_s": float(np.mean(rr)) if rr.size else None,
+        "brady_ratio": brady_ratio,
+    }
     return {
         'title': ecg_title,
         'lead_name': lead_name,

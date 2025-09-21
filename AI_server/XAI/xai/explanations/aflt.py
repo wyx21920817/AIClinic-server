@@ -538,7 +538,20 @@ def generate_aflt_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     ]
     report_text = "\n".join(report_lines)
 
-    metrics = {
+    # Determine if abnormality is present based on clinical criteria
+    is_present = (
+        dom_rate_bpm and 240 <= dom_rate_bpm <= 350 and
+        power_ratio and power_ratio > 0.6 and
+        av_ratio and av_ratio >= 2
+    )
+    
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(is_present),
+        'abnormality_count': 1 if is_present else 0,
+    }
+    
+    statistics = {
         'dominant_freq_hz': dom_freq_hz,
         'dominant_rate_bpm': dom_rate_bpm,
         'band_power_ratio': float(power_ratio) if power_ratio is not None else None,
@@ -546,14 +559,20 @@ def generate_aflt_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
         'fwave_rate_bpm': f_rate_bpm,
         'rr_rate_bpm': rr_rate_bpm,
         'estimated_av_ratio': int(av_ratio) if av_ratio else None,
-        # Add debug information for algorithm validation
-        'debug_info': debug_info
     }
 
-    return {
+    out = {
         'title': ecg_title,
         'lead_name': lead_name,
         'report_text': report_text,
-        'metrics': metrics,
+        'summary': summary,
+        'statistics': statistics,
         'image_paths': ['aflt_overview.png', 'aflt_spectrum.png', 'aflt_autocorr.png']
     }
+    
+    # Optional debug information
+    import os
+    if os.getenv('XAI_DEBUG_VERBOSE', '0') not in ('0', 'false', 'False'):
+        out['debug_details'] = {'debug_info': debug_info}
+    
+    return out

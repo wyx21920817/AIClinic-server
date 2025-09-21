@@ -462,13 +462,6 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
         'rr_cv': det_metrics.get('rr_cv'),
     }
 
-    # Default: concise metrics (prune heavy internals)
-    concise_metrics = {
-        'total_pac': det_metrics.get('total_pac', 0),
-        'total_beats': int(r_idx.size),
-        'median_rr_s': det_metrics.get('median_rr_s'),
-        'rr_cv': det_metrics.get('rr_cv'),
-    }
 
     out = {
         'title': ecg_title,

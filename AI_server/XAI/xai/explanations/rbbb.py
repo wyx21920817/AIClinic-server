@@ -386,7 +386,12 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
     ])
     print(report_text)
 
-    metrics = {
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(qrs_pool and (qrs_mean >= 0.12) and (rsr_wide_or_borderline > 0) and (deepS_wide_or_borderline > 0)),
+        'abnormality_count': int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0,
+    }
+    statistics = {
         "qrs_mean_s": qrs_mean if not np.isnan(qrs_mean) else None,
         "wide_qrs_proportion": prop_wide if not np.isnan(prop_wide) else None,
         "rsr_pattern_detected": rsr_detected,
@@ -397,12 +402,6 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
         "deep_s_beats_wide_or_borderline": deepS_wide_or_borderline,
         "qrs_category_counts": category_counts,
     }
-    summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(qrs_pool and (qrs_mean >= 0.12) and (rsr_wide_or_borderline > 0) and (deepS_wide_or_borderline > 0)),
-        'abnormality_count': int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0,
-    }
-    statistics = metrics
     return {
         'title': f'RBBB Screening ({record_name})',
         'report_text': report_text,

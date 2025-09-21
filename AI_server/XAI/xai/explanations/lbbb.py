@@ -175,23 +175,27 @@ def generate_lbbb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     # 6) Report
     report_text = generate_report_bbb(ecg_title, lead_name, estimation_type, qrs_durations_sec)
     print(report_text)
-    metrics = {}
+    
+    # Calculate statistics directly
+    qrs_mean = None
+    wide_qrs_count = 0
+    total_qrs_count = 0
+    
     if qrs_durations_sec:
         qrs_arr = np.array(qrs_durations_sec)
-        metrics = {
-            'qrs_mean_s': float(np.mean(qrs_arr)),
-            'wide_qrs_count': int(np.sum(qrs_arr > 0.12)),
-            'total_qrs_count': int(qrs_arr.size)
-        }
+        qrs_mean = float(np.mean(qrs_arr))
+        wide_qrs_count = int(np.sum(qrs_arr > 0.12))
+        total_qrs_count = int(qrs_arr.size)
+    
     summary = {
         'report_text': report_text,
-        'is_abnormality_present': bool(metrics.get('qrs_mean_s') and metrics['qrs_mean_s'] >= 0.12),
-        'abnormality_count': int(metrics.get('wide_qrs_count') or 0),
+        'is_abnormality_present': bool(qrs_mean and qrs_mean >= 0.12),
+        'abnormality_count': int(wide_qrs_count),
     }
     statistics = {
-        'qrs_mean_s': metrics.get('qrs_mean_s'),
-        'wide_qrs_count': metrics.get('wide_qrs_count'),
-        'total_qrs_count': metrics.get('total_qrs_count'),
+        'qrs_mean_s': qrs_mean,
+        'wide_qrs_count': wide_qrs_count,
+        'total_qrs_count': total_qrs_count,
     }
     return {
         'title': ecg_title,

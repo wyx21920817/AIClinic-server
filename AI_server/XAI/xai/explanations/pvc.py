@@ -235,19 +235,28 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
             rr_prev = rr[i_prev]  # RR leading to this beat
             rr_next = rr[i_next]  # RR following this beat
             
-            # Adaptive thresholds based on heart rate
+            # Adaptive thresholds based on heart rate (further relaxed for better sensitivity)
             if median_rr < 0.5:  # Fast heart rate (>120 bpm)
                 short_threshold = 0.75 * median_rr
-                long_threshold = 1.4 * median_rr
-                sum_threshold = 1.8 * median_rr
-            else:  # Normal/slow heart rate
-                short_threshold = 0.80 * median_rr
                 long_threshold = 1.3 * median_rr
-                sum_threshold = 1.9 * median_rr
+                sum_threshold = 1.6 * median_rr
+            else:  # Normal/slow heart rate
+                short_threshold = 0.85 * median_rr  # Slightly increased to be more specific
+                long_threshold = 1.15 * median_rr  # Further reduced from 1.2 to 1.15
+                sum_threshold = 1.7 * median_rr    # Further reduced from 1.8 to 1.7
             
             was_short = rr_prev <= short_threshold
             is_long = rr_next >= long_threshold
+            
+            # Primary compensatory pause detection
             compensatory = bool(was_short and is_long and ((rr_prev + rr_next) >= sum_threshold))
+            
+            # Alternative compensatory pause detection for milder cases
+            # If the beat is premature and there's some lengthening of the next RR
+            if not compensatory and is_premature:
+                mild_long = rr_next >= (1.05 * median_rr)  # Even mild lengthening
+                relative_short = rr_prev <= (0.95 * median_rr)  # Relative shortening
+                compensatory = bool(relative_short and mild_long)
         # Do not hard prefilter here; we may discover dominant negative complexes between R-peaks.
 
         # Scores
@@ -471,9 +480,17 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
             is_wide_core or (neg_dom_ratio >= 0.9) or (p_absence_score >= 0.7)
         )
         
+        # Mild PVC detection for subtle cases with reasonable morphology change
+        mild_pvc = (is_premature and compensatory and (morph_abn >= 0.15) and 
+                   (neg_dom_ratio >= 1.5 or overall >= 0.12))
+        
+        # Backup threshold-based detection for high-scoring candidates
+        high_overall_score = overall >= 0.3  # Further lowered threshold for backup detection
+        
         # Final classification with balanced criteria
-        classified = (core_pvc or very_wide or obvious_pvc or classic_pvc or 
-                     (strong_morph and is_premature))
+        classified = (core_pvc or very_wide or obvious_pvc or classic_pvc or mild_pvc or 
+                     (strong_morph and is_premature) or 
+                     (high_overall_score and is_premature and (compensatory or morph_abn >= 0.3)))
         cand['classified_as_pvc'] = bool(classified)
         # Always store event index/time for consistent plotting
         cand['event_index'] = int(s_min_idx)
@@ -481,7 +498,7 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
 
         if classified:
             pvc_indices.append(beat_idx)
-            compensatory_flags.append(True)
+            compensatory_flags.append(compensatory)
         else:
             cand['failure_reason'] = 'Overall confidence below rule threshold' if overall < 0.5 else 'Rule conditions not fully met'
         # suspicious flag for shading
@@ -502,7 +519,49 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
             cand['v1_event_time_s'] = float(v1_event_idx / fs)
         candidates.append(cand)
 
-    pvc_indices = np.asarray(pvc_indices, dtype=int)
+    # Post-processing: Filter out closely spaced PVCs without compensatory pause
+    # This helps reduce false positives from consecutive abnormal beats
+    filtered_pvc_indices = []
+    filtered_compensatory_flags = []
+    
+    for i, (pvc_idx, has_comp) in enumerate(zip(pvc_indices, compensatory_flags)):
+        # Find the corresponding candidate
+        pvc_candidate = None
+        for cand in candidates:
+            if cand['beat_index'] == pvc_idx and cand['classified_as_pvc']:
+                pvc_candidate = cand
+                break
+        
+        if pvc_candidate is None:
+            continue
+            
+        # Check if this PVC is closely followed by another PVC (< 0.4s apart)
+        is_closely_followed = False
+        if i < len(pvc_indices) - 1:
+            next_pvc_idx = pvc_indices[i + 1]
+            time_gap = (r_idx[next_pvc_idx] - r_idx[pvc_idx]) / fs
+            is_closely_followed = time_gap < 0.4
+        
+        # If closely followed by another PVC and this one has no compensatory pause,
+        # it might be a false positive - only keep it if it has strong evidence
+        if is_closely_followed and not has_comp:
+            overall_score = pvc_candidate.get('scores', {}).get('overall_pvc', 0)
+            # Only keep if it has very high confidence (> 0.5) or strong morphological evidence
+            morph_abn = pvc_candidate.get('scores', {}).get('qrs_morphology_abnormality', 0)
+            if overall_score > 0.5 or morph_abn > 0.8:
+                filtered_pvc_indices.append(pvc_idx)
+                filtered_compensatory_flags.append(has_comp)
+            else:
+                # Mark as not PVC in candidates for debugging
+                pvc_candidate['classified_as_pvc'] = False
+                pvc_candidate['failure_reason'] = "Filtered: closely spaced PVC without compensatory pause"
+        else:
+            filtered_pvc_indices.append(pvc_idx)
+            filtered_compensatory_flags.append(has_comp)
+    
+    pvc_indices = np.asarray(filtered_pvc_indices, dtype=int)
+    compensatory_flags = filtered_compensatory_flags
+    
     metrics = {
         'median_rr_s': median_rr,
         'baseline_rr_s': baseline_rr,
@@ -853,14 +912,6 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
         'wide_qrs_fraction': det_metrics.get('wide_qrs_fraction'),
     }
 
-    concise_metrics = {
-        'total_pvc': det_metrics.get('total_pvc', 0),
-        'total_beats': int(r_idx.size),
-        'median_rr_s': det_metrics.get('median_rr_s'),
-        'baseline_rr_s': det_metrics.get('baseline_rr_s'),
-        'rr_cv': det_metrics.get('rr_cv'),
-        'wide_qrs_fraction': det_metrics.get('wide_qrs_fraction'),
-    }
 
     # Recompute RR for image path conditional
     rr = np.diff(r_idx) / sampling_rate if r_idx.size > 1 else np.array([])
@@ -874,7 +925,7 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     }
 
     # Optional debug block via env
-    dbg = os.getenv('XAI_DEBUG_VERBOSE', '1')
+    dbg = os.getenv('XAI_DEBUG_VERBOSE', '0')
     if dbg not in ('0', 'false', 'False', None):
         out['debug_details'] = {
             'candidates_analysis': candidates,

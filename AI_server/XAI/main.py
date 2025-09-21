@@ -385,22 +385,23 @@ def run_xai_tasks(
                 try:
                     val = None
                     if abn == "AFIB":
-                        val = validate_af(report_data.get("metrics", {}))
+                        # All modules now use unified summary+statistics structure
+                        val = validate_af(report_data)
                     elif abn == "STACH":
-                        val = validate_st(report_data.get("metrics", {}))
+                        val = validate_st(report_data)
                     elif abn == "SBRAD":
-                        val = validate_sb(report_data.get("metrics", {}))
+                        val = validate_sb(report_data)
                     elif abn == "1dAVB":
-                        val = validate_avb1(report_data.get("metrics", {}))
+                        val = validate_avb1(report_data)
                     elif abn == "3dAVB":
                         from .xai.explanations.validators import validate_avb3
-                        val = validate_avb3(report_data.get("metrics", {}))
+                        val = validate_avb3(report_data)
                     elif abn == "LBBB":
-                        val = validate_lbbb(report_data.get("metrics", {}))
+                        val = validate_lbbb(report_data)
                     elif abn == "RBBB":
-                        val = validate_rbbb(report_data.get("metrics", {}))
+                        val = validate_rbbb(report_data)
                     elif abn == "NORM":
-                        val = validate_nr(report_data.get("metrics", {}))
+                        val = validate_nr(report_data)
                     elif abn == "PAC":
                         val = validate_pac(report_data)
                     elif abn == "PVC":
@@ -413,12 +414,14 @@ def run_xai_tasks(
                 # Additional validators
                 if abn == "2dAVB":
                     try:
-                        report_data["validation"] = validate_avb2(report_data.get("metrics", {}))
+                        # Use unified report structure
+                        report_data["validation"] = validate_avb2(report_data)
                     except Exception:
                         pass
                 if abn == "AFLT":
                     try:
-                        report_data["validation"] = validate_aflt(report_data.get("metrics", {}))
+                        # Use unified report structure
+                        report_data["validation"] = validate_aflt(report_data)
                     except Exception:
                         pass
 

@@ -382,3 +382,59 @@ def validate_pvc(report_or_metrics) -> dict:
             'wide_qrs_fraction': wide,
         }
     }
+
+
+def validate_aflt(report_or_metrics) -> dict:
+    """Validate atrial flutter based on frequency analysis and AV ratio."""
+    fields = _extract_from_report(report_or_metrics, [
+        "dominant_rate_bpm", "band_power_ratio", "estimated_av_ratio", 
+        "fwave_rate_bpm", "autocorr_rate_bpm"
+    ])
+    
+    dom_rate = fields.get("dominant_rate_bpm")
+    power_ratio = fields.get("band_power_ratio")
+    av_ratio = fields.get("estimated_av_ratio")
+    f_rate = fields.get("fwave_rate_bpm")
+    ac_rate = fields.get("autocorr_rate_bpm")
+    
+    if dom_rate is None and f_rate is None:
+        return _mk("fail", ["no frequency analysis available"], {})
+    
+    # Use best available rate estimate
+    flutter_rate = dom_rate or f_rate or ac_rate
+    
+    # Atrial flutter criteria: 240-350 bpm flutter rate, power concentration, AV block
+    criteria_met = 0
+    reasons = []
+    metrics = {}
+    
+    if flutter_rate and 240 <= flutter_rate <= 350:
+        criteria_met += 1
+        reasons.append(f"flutter_rate {flutter_rate:.0f} bpm in range 240-350")
+        metrics["flutter_rate_bpm"] = flutter_rate
+    elif flutter_rate:
+        reasons.append(f"flutter_rate {flutter_rate:.0f} bpm outside 240-350 range")
+        metrics["flutter_rate_bpm"] = flutter_rate
+        
+    if power_ratio and power_ratio > 0.6:
+        criteria_met += 1
+        reasons.append(f"power_ratio {power_ratio:.2f}>0.6 (concentrated)")
+        metrics["power_ratio"] = power_ratio
+    elif power_ratio:
+        reasons.append(f"power_ratio {power_ratio:.2f}≤0.6 (dispersed)")
+        metrics["power_ratio"] = power_ratio
+        
+    if av_ratio and av_ratio >= 2:
+        criteria_met += 1
+        reasons.append(f"av_ratio {av_ratio}:1≥2:1 (AV block)")
+        metrics["av_ratio"] = av_ratio
+    elif av_ratio:
+        reasons.append(f"av_ratio {av_ratio}:1<2:1")
+        metrics["av_ratio"] = av_ratio
+    
+    if criteria_met >= 3:
+        return _mk("pass", reasons, metrics)
+    elif criteria_met >= 2:
+        return _mk("warn", reasons + ["2/3 criteria met"], metrics)
+    else:
+        return _mk("fail", reasons + [f"only {criteria_met}/3 criteria met"], metrics)

@@ -359,11 +359,50 @@ def generate_aflt_multilead(leads_data, ecg_title, output_dir):
     ]
     report_text = "\n".join(report_lines)
 
+    # Determine if abnormality is present based on clinical criteria
+    # Use primary metrics from best available lead
+    dom_rate = primary_metrics.get('dominant_rate_bpm')
+    power_ratio = primary_metrics.get('band_power_ratio')
+    
+    is_present = (
+        dom_rate and 240 <= dom_rate <= 350 and
+        power_ratio and power_ratio > 0.6 and
+        estimated_av_ratio and estimated_av_ratio >= 2
+    )
+    
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(is_present),
+        'abnormality_count': 1 if is_present else 0,
+    }
+    
+    # Extract key statistics for validation
+    statistics = {
+        'dominant_rate_bpm': primary_metrics.get('dominant_rate_bpm'),
+        'band_power_ratio': primary_metrics.get('band_power_ratio'),
+        'estimated_av_ratio': int(estimated_av_ratio) if estimated_av_ratio else None,
+        'fwave_rate_bpm': None,  # Not available in multilead analysis
+        'autocorr_rate_bpm': None,  # Not available in multilead analysis
+        'inferior_consistent': bool(inferior_consistent),
+        'inferior_mean_rate_bpm': float(inferior_mean_rate) if inferior_mean_rate else None,
+        'v1_evidence_score': float(v1_evidence) if v1_evidence is not None else None,
+        'per_lead': {
+            lab: {
+                'dominant_rate_bpm': per_lead[lab].get('dom_rate_bpm'),
+                'band_power_ratio': per_lead[lab].get('band_power_ratio'),
+                'autocorr_rate_bpm': per_lead[lab].get('ac_rate_bpm'),
+                'fwave_rate_bpm': per_lead[lab].get('f_rate_bpm'),
+                'rr_rate_bpm': per_lead[lab].get('rr_rate_bpm'),
+            } for lab in per_lead
+        }
+    }
+
     return {
         'title': ecg_title,
         'lead_name': 'II/III/aVF/V1',
         'report_text': report_text,
-        'metrics': metrics,
+        'summary': summary,
+        'statistics': statistics,
         'image_paths': ['aflt_multilead_overview.png', 'aflt_multilead_spectrum.png', 'aflt_multilead_autocorr.png']
     }
 
@@ -400,7 +439,30 @@ def generate_aflt_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     # Frequency analysis (FFT)
     n = len(atrial)
     if n == 0:
-        return None
+        # Return a minimal report even if signal processing fails
+        report_text = f"AFLT analysis failed: no valid atrial signal for {ecg_title} ({lead_name})"
+        summary = {
+            'report_text': report_text,
+            'is_abnormality_present': False,
+            'abnormality_count': 0,
+        }
+        statistics = {
+            'dominant_freq_hz': None,
+            'dominant_rate_bpm': None,
+            'band_power_ratio': None,
+            'autocorr_rate_bpm': None,
+            'fwave_rate_bpm': None,
+            'rr_rate_bpm': None,
+            'estimated_av_ratio': None,
+        }
+        return {
+            'title': ecg_title,
+            'lead_name': lead_name,
+            'report_text': report_text,
+            'summary': summary,
+            'statistics': statistics,
+            'image_paths': []
+        }
     freqs = np.fft.rfftfreq(n, d=1.0/sampling_rate)
     spec = np.abs(np.fft.rfft(atrial))
 
@@ -573,6 +635,14 @@ def generate_aflt_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     # Optional debug information
     import os
     if os.getenv('XAI_DEBUG_VERBOSE', '0') not in ('0', 'false', 'False'):
-        out['debug_details'] = {'debug_info': debug_info}
+        out['debug_details'] = {
+            'debug_info': debug_info,
+            'signal_info': {
+                'ecg_length': len(ecg_signal) if ecg_signal is not None else 0,
+                'atrial_length': len(atrial) if 'atrial' in locals() else 0,
+                'r_peaks_count': len(r_idx) if 'r_idx' in locals() else 0,
+                'sampling_rate': sampling_rate
+            }
+        }
     
     return out

@@ -228,7 +228,7 @@ def validate_aflt(report_or_metrics) -> dict:
         return _mk('fail', ['insufficient spectrum metrics'], {'dominant_rate_bpm': dom, 'band_power_ratio': pr})
     reasons = []
     metrics_used = {'dominant_rate_bpm': dom, 'band_power_ratio': pr}
-    if 220 <= dom <= 360:
+    if 230 <= dom <= 360:
         reasons.append(f'dominant_rate {dom:.0f} bpm in flutter band')
         rate_score = 1.0
     elif 200 <= dom <= 380:
@@ -397,8 +397,12 @@ def validate_aflt(report_or_metrics) -> dict:
     f_rate = fields.get("fwave_rate_bpm")
     ac_rate = fields.get("autocorr_rate_bpm")
     
-    if dom_rate is None and f_rate is None:
-        return _mk("fail", ["no frequency analysis available"], {})
+    if dom_rate is None and f_rate is None and ac_rate is None:
+        return _mk("fail", ["no frequency analysis available - all methods failed"], {
+            "dominant_rate_bpm": dom_rate,
+            "fwave_rate_bpm": f_rate,
+            "autocorr_rate_bpm": ac_rate
+        })
     
     # Use best available rate estimate
     flutter_rate = dom_rate or f_rate or ac_rate
@@ -408,12 +412,20 @@ def validate_aflt(report_or_metrics) -> dict:
     reasons = []
     metrics = {}
     
-    if flutter_rate and 240 <= flutter_rate <= 350:
+    # Add source information to reasons
+    if dom_rate:
+        reasons.append(f"using dominant_freq analysis")
+    elif f_rate:
+        reasons.append(f"using f_wave analysis")
+    elif ac_rate:
+        reasons.append(f"using autocorr analysis (FFT failed)")
+    
+    if flutter_rate and 230 <= flutter_rate <= 350:
         criteria_met += 1
-        reasons.append(f"flutter_rate {flutter_rate:.0f} bpm in range 240-350")
+        reasons.append(f"flutter_rate {flutter_rate:.0f} bpm in range 230-350")
         metrics["flutter_rate_bpm"] = flutter_rate
     elif flutter_rate:
-        reasons.append(f"flutter_rate {flutter_rate:.0f} bpm outside 240-350 range")
+        reasons.append(f"flutter_rate {flutter_rate:.0f} bpm outside 230-350 range")
         metrics["flutter_rate_bpm"] = flutter_rate
         
     if power_ratio and power_ratio > 0.6:

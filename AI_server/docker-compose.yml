@@ -1,0 +1,21 @@
+version: '3'
+
+networks:
+  aiclinic-net:
+    external: true
+    name: aiclinic-net
+
+services:
+  ai_server:
+    image: deer20010203/aiclinic-server:latest
+    container_name: ai_server
+    environment:
+      - BASE_URL=http://localhost:10000
+      - ORTHANC_URL=http://orthanc:8042
+    ports:
+      - "10000:8000"
+    networks:
+      - aiclinic-net
+    restart: unless-stopped
+
+

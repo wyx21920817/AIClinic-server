@@ -76,7 +76,7 @@ async def predict(instance_id: str, request: PredictRequest):
         # 3. Predict (Original Model)
         preds = await run_in_threadpool(predict_ecg, ecg)
         logging.debug(f"Original model predict outcome: {preds}")
-        new_model_predictions = await run_in_threadpool(process_and_predict, temp_dicom_file_path)
+        new_model_predictions = await run_in_threadpool(process_and_predict, ds)
         logging.debug(f"New model predict outcome: {new_model_predictions}")
         combined_predictions = {
             "original_dnn_model": preds,

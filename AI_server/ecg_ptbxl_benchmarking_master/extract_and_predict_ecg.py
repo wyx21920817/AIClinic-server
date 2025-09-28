@@ -257,12 +257,12 @@ MODELS_DIR_13  = os.path.join(BASE_PATH_13, 'models')
 WEIGHTS_FILE_13 = os.path.join(MODELS_DIR_13, 'fastai_xresnet1d101_13class_smart.pth')
 DATA_DIR_13    = os.path.join(BASE_PATH_13, 'data')  # standard_scaler.pkl & mlb.pkl
 
-def extract_ecg_from_dicom(dicom_file):
+def extract_ecg_from_dicom(ds):
     """
     Extract ECG signal from DICOM WaveformSequence
     Returns np.ndarray with shape (samples, channels)
     """
-    ds = pydicom.dcmread(dicom_file, force=True)
+     
     if not hasattr(ds, 'WaveformSequence'):
         raise ValueError("WaveformSequence not found in DICOM")
     wf = ds.WaveformSequence[0]
@@ -306,7 +306,7 @@ def build_class_map(mlb):
     """
     return {i:cls for i,cls in enumerate(mlb.classes_)}
 
-def process_and_predict(dicom_file, class_type="13class"):
+def process_and_predict(ds, class_type="13class"):
     """
     Process DICOM file and run ECG prediction
     
@@ -324,15 +324,15 @@ def process_and_predict(dicom_file, class_type="13class"):
     
     if class_type == "superclass":
         # Use fine-tuned model to predict 5 superclasses
-        return _predict_superclass(dicom_file)
+        return _predict_superclass(ds)
     elif class_type == "subclass":
         # Use original model to predict 71 subclasses, then map to target categories
-        return _predict_subclass(dicom_file)
+        return _predict_subclass(ds)
     else:
         # Default 13-class model prediction
-        return _predict_13class(dicom_file)
+        return _predict_13class(ds)
 
-def _predict_superclass(dicom_file):
+def _predict_superclass(ds):
     """Use fine-tuned model to predict superclasses (5 classes)"""
     set_seed()  # Fix random seed
 
@@ -342,7 +342,7 @@ def _predict_superclass(dicom_file):
     n_out      = len(mlb.classes_)
 
     # -- 2. Extract ECG
-    ecg = extract_ecg_from_dicom(dicom_file)         # shape (samples, channels)
+    ecg = extract_ecg_from_dicom(ds)         # shape (samples, channels)
     
     # -- 3. Preprocess: convert to (channels, samples), then normalize
     sig = ecg.astype(np.float32).T   
@@ -373,7 +373,7 @@ def _predict_superclass(dicom_file):
 
     return result
 
-def _predict_subclass(dicom_file):
+def _predict_subclass(ds):
     """Use original model to predict subclasses (71 classes), then map to target disease categories"""
     set_seed_128()  # Fix random seed
 
@@ -383,7 +383,7 @@ def _predict_subclass(dicom_file):
     n_out      = len(mlb.classes_)
 
     # -- 2. Extract ECG
-    ecg = extract_ecg_from_dicom(dicom_file)         # shape (samples, channels)
+    ecg = extract_ecg_from_dicom(ds)         # shape (samples, channels)
     
     # -- 3. Preprocess: convert to (channels, samples), then normalize
     sig = ecg.astype(np.float32).T   
@@ -425,7 +425,7 @@ def _predict_subclass(dicom_file):
     return mapped_result
 
 
-def _predict_13class(dicom_file):
+def _predict_13class(ds):
     """Use 13-class model to predict target classes directly (13 classes)."""
     # Reuse subclass utilities for robustness
     set_seed_128()
@@ -436,7 +436,7 @@ def _predict_13class(dicom_file):
     n_out      = len(mlb.classes_)
 
     # -- 2. Extract ECG
-    ecg = extract_ecg_from_dicom(dicom_file)
+    ecg = extract_ecg_from_dicom(ds)
 
     # -- 3. Preprocess to (12, N) normalized
     sig = ecg.astype(np.float32).T

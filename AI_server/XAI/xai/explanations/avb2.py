@@ -253,19 +253,32 @@ def generate_avb2_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
         ax3.set_title('PR interval distribution'); ax3.set_xlabel('PR interval (s)'); ax3.set_ylabel('count'); ax3.legend()
         plt.tight_layout(); plt.savefig(os.path.join(output_dir, 'avb2_pr_hist.png')); plt.close(fig3)
 
-    report_lines = [
-        f"Conduction ratio (R/P): {overall_conduction_quality:.2f} (mean quality)",
-        f"Dropped P count: {len(dropped_p_indices)}",
-        f"Wenckebach sequences: {wenckebach_sequences}",
-        f"Subtype: {subtype or 'undetermined'} (confidence: {subtype_confidence:.2f})"
-    ]
-    report_text = "\n".join(report_lines)
+    # Enhanced structured report sections
+    detailed_report_sections = []
+    
+    # Section 1: Conduction Failure Assessment
+    dropped_count = len(dropped_p_indices)
+    conduction_section = {
+        "section_title": f"1. Conduction Failure: {'Dropped Beats Detected' if dropped_count > 0 else 'Normal Conduction'}",
+        "content": f"The analysis identified {dropped_count} instances where a P-wave was not followed by a QRS complex {'(dropped beats)' if dropped_count > 0 else ''}, {'confirming a significant interruption in AV conduction' if dropped_count > 0 else 'indicating normal AV conduction'}. The overall conduction ratio is {overall_conduction_quality:.2f}, {'suggesting impaired AV transmission' if overall_conduction_quality < 0.8 else 'indicating adequate conduction quality'}. The [AV Conduction Analysis] chart displays conducted vs dropped P-waves with color coding."
+    }
+    detailed_report_sections.append(conduction_section)
+    
+    # Section 2: Subtype Classification
+    subtype_display = subtype or 'undetermined'
+    subtype_section = {
+        "section_title": f"2. Subtype Classification: {subtype_display.title()} Pattern",
+        "content": f"{'The PR interval analysis reveals ' + subtype_display + ' pattern characteristics' if subtype else 'Subtype classification requires further evaluation'}. {'The PR interval remained constant before each dropped beat, which is the key characteristic of a Mobitz Type II block' if subtype == 'mobitz_ii' else 'Progressive PR prolongation followed by a dropped beat suggests Mobitz Type I (Wenckebach) pattern' if subtype == 'mobitz_i' else 'The pattern does not clearly fit typical Mobitz classifications'}. The confidence for this classification is {subtype_confidence:.2f}. {'Wenckebach sequences were detected: ' + str(wenckebach_sequences) if wenckebach_sequences > 0 else 'No clear Wenckebach sequences identified'}."
+    }
+    detailed_report_sections.append(subtype_section)
 
-    # Build summary/statistics (no legacy metrics)
+    # Build summary/statistics with structured format
+    is_avb2_present = bool(dropped_count >= 1)
+    
     summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(len(dropped_p_indices) >= 1),
-        'abnormality_count': int(len(dropped_p_indices)),
+        'report_text': f"Analysis {'confirmed the presence of 2nd-degree AV block' if is_avb2_present else 'did not detect significant AV conduction abnormalities'}{' (' + subtype_display.replace('_', ' ').title() + ')' if subtype and is_avb2_present else ''}, with {dropped_count} dropped beat{'s' if dropped_count != 1 else ''} detected.",
+        'is_abnormality_present': is_avb2_present,
+        'abnormality_count': int(dropped_count) if is_avb2_present else 0,
     }
     statistics = {
         'total_p_count': int(len(p_onsets)),
@@ -280,16 +293,20 @@ def generate_avb2_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
         'conduction_ratio': overall_conduction_quality,
     }
 
-    image_paths = ['avb2_overview.png']
+    image_paths = {
+        'avb2_overview.png': os.path.join(output_dir, 'avb2_overview.png')
+    }
     if pr_intervals.size > 0:
-        image_paths.append('avb2_pr_trend.png')
-        image_paths.append('avb2_pr_hist.png')
+        image_paths['avb2_pr_trend.png'] = os.path.join(output_dir, 'avb2_pr_trend.png')
+        image_paths['avb2_pr_hist.png'] = os.path.join(output_dir, 'avb2_pr_hist.png')
+
+    title_type = "Second-Degree AV Block" if is_avb2_present else "Normal AV Conduction"
 
     return {
-        'title': ecg_title,
+        'title': f'ECG Analysis Report: {title_type}',
         'lead_name': lead_name,
-        'report_text': report_text,
         'summary': summary,
+        'report_text': detailed_report_sections,
         'statistics': statistics,
         'image_paths': image_paths
     }

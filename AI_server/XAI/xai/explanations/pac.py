@@ -448,10 +448,17 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     abnormality_indices = [int(c.get('beat_index')) for c in confirmed]
     heart_rate_bpm = 60.0 / det_metrics['median_rr_s'] if det_metrics.get('median_rr_s') else None
 
+    pac_count = det_metrics.get('total_pac', 0)
+    is_pac_present = bool(pac_count > 0)
+    
+    # Fix f-string nesting
+    detection_text = f"detected {pac_count} PAC events" if is_pac_present else "did not detect any PAC events"
+    morphology_text = "Ectopic atrial beats show characteristic early P-waves, narrow QRS complexes, and non-compensatory pauses" if is_pac_present else "All beats appear to originate from normal sinus node without atrial ectopy"
+    
     summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(det_metrics.get('total_pac', 0) > 0),
-        'abnormality_count': int(det_metrics.get('total_pac', 0)),
+        'report_text': f"Premature atrial complex analysis {detection_text}. {morphology_text}.",
+        'is_abnormality_present': is_pac_present,
+        'abnormality_count': int(pac_count),
         'abnormality_indices': abnormality_indices,
         'abnormality_times_s': abnormality_times,
     }
@@ -463,13 +470,42 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     }
 
 
+    # Enhanced structured report sections
+    detailed_report_sections = []
+    
+    # Section 1: Ectopic Beat Assessment
+    pac_count = det_metrics.get('total_pac', 0)
+    beat_status = f"Detected ({pac_count})" if pac_count > 0 else "Not Detected"
+    beat_section = {
+        "section_title": f"1. Premature Atrial Complex Assessment: {beat_status}",
+        "content": f"Analysis identified {pac_count} premature atrial complexes. {'PAC events are highlighted in the [ECG Overview] showing early P-waves and narrow QRS complexes.' if pac_count > 0 else 'No clear PAC patterns were detected based on prematurity, P-wave morphology, and non-compensatory pause criteria.'} The detection algorithm evaluates beat prematurity, ectopic P-wave presence, and QRS morphology similarity to baseline."
+    }
+    detailed_report_sections.append(beat_section)
+    
+    # Section 2: P-wave Analysis
+    p_vis_frac = det_metrics.get('p_visibility_fraction', 0)
+    noncomp_frac = det_metrics.get('noncompensatory_fraction', 0)
+    p_section = {
+        "section_title": "2. P-wave and Conduction Analysis",
+        "content": f"P-wave analysis shows {'clear ectopic P-waves in ' + str(p_vis_frac*100) + '% of detected PACs' if pac_count > 0 else 'normal P-wave morphology throughout the recording'}. {'Non-compensatory pauses were observed in ' + str(noncomp_frac*100) + '% of PACs, consistent with atrial origin.' if pac_count > 0 else ''} The [RR Interval Analysis] demonstrates the timing characteristics typical of supraventricular ectopy."
+    }
+    detailed_report_sections.append(p_section)
+
+    image_paths = {
+        'pac_overview.png': os.path.join(output_dir, 'pac_overview.png')
+    }
+    if rr.size:
+        image_paths['pac_rr.png'] = os.path.join(output_dir, 'pac_rr.png')
+
+    title_type = "Premature Atrial Complexes" if pac_count > 0 else "No PAC Detected"
+    
     out = {
-        'title': ecg_title,
+        'title': f'ECG Analysis Report: {title_type}',
         'lead_name': lead_name,
-        'report_text': report_text,
         'summary': summary,
+        'report_text': detailed_report_sections,
         'statistics': statistics,
-        'image_paths': ['pac_overview.png', 'pac_rr.png'] if rr.size else ['pac_overview.png'],
+        'image_paths': image_paths,
     }
 
     # Optional: attach debug details when enabled via env var

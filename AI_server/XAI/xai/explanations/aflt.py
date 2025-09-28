@@ -370,8 +370,28 @@ def generate_aflt_multilead(leads_data, ecg_title, output_dir):
         estimated_av_ratio and estimated_av_ratio >= 2
     )
     
+    # Enhanced structured report sections
+    detailed_report_sections = []
+    
+    # Section 1: Atrial Rate Assessment
+    rate_status = "Flutter Pattern" if is_present else "Normal Pattern"
+    dom_rate = primary_metrics.get('dominant_rate_bpm', 0)
+    rate_section = {
+        "section_title": f"1. Atrial Rate Assessment: {rate_status} ({dom_rate:.0f} bpm)" if dom_rate else "1. Atrial Rate Assessment: Unable to determine",
+        "content": f"Multi-lead atrial rate analysis shows {'characteristic flutter waves' if is_present else 'normal atrial activity'} with dominant frequency of {dom_rate:.0f} bpm. {'This rate falls within the typical atrial flutter range (240-350 bpm)' if is_present else 'The atrial rate is outside the flutter range'}. The [Spectral Analysis] displays frequency domain characteristics across multiple leads for comprehensive assessment."
+    }
+    detailed_report_sections.append(rate_section)
+    
+    # Section 2: AV Conduction Analysis
+    av_ratio = estimated_av_ratio or 1
+    conduction_section = {
+        "section_title": f"2. Atrioventricular Conduction Analysis: {av_ratio}:1 Ratio",
+        "content": f"AV conduction analysis reveals {'variable block pattern typical of atrial flutter' if av_ratio >= 2 else 'normal 1:1 conduction'}. The estimated AV conduction ratio is {av_ratio}:1, {'indicating physiological ventricular protection from rapid atrial rates' if av_ratio >= 2 else 'suggesting normal conduction'}. The [Multi-lead Overview] shows the relationship between atrial flutter waves and ventricular responses across different leads."
+    }
+    detailed_report_sections.append(conduction_section)
+
     summary = {
-        'report_text': report_text,
+        'report_text': f"Atrial flutter analysis shows {'typical flutter pattern' if is_present else 'normal atrial rhythm'} with dominant rate of {dom_rate:.0f} bpm and AV conduction ratio of {av_ratio}:1. {'Clinical criteria for atrial flutter are met' if is_present else 'No evidence of atrial flutter detected'}.",
         'is_abnormality_present': bool(is_present),
         'abnormality_count': 1 if is_present else 0,
     }
@@ -397,13 +417,19 @@ def generate_aflt_multilead(leads_data, ecg_title, output_dir):
         }
     }
 
+    title_type = "Atrial Flutter" if is_present else "Normal Atrial Rhythm"
+
     return {
-        'title': ecg_title,
+        'title': f'ECG Analysis Report: {title_type}',
         'lead_name': 'II/III/aVF/V1',
-        'report_text': report_text,
         'summary': summary,
+        'report_text': detailed_report_sections,
         'statistics': statistics,
-        'image_paths': ['aflt_multilead_overview.png', 'aflt_multilead_spectrum.png', 'aflt_multilead_autocorr.png']
+        'image_paths': {
+            'aflt_multilead_overview.png': os.path.join(output_dir, 'aflt_multilead_overview.png'),
+            'aflt_multilead_spectrum.png': os.path.join(output_dir, 'aflt_multilead_spectrum.png'),
+            'aflt_multilead_autocorr.png': os.path.join(output_dir, 'aflt_multilead_autocorr.png')
+        }
     }
 
 

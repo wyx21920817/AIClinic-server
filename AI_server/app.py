@@ -15,6 +15,7 @@ from pydicom import dcmread
 from ecg_ptbxl_benchmarking_master.extract_and_predict_ecg import process_and_predict 
 from fastapi.param_functions import Form
 from typing import List
+from pydicom.filewriter import dcmwrite
 from XAI.main import run_xai_tasks
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -47,21 +48,10 @@ async def predict(instance_id: str, request: PredictRequest):
         ds = await run_in_threadpool(get_instance_dicom, instance_id, token)
         logging.debug(f"DICOM data retrieve success for original model.")
 
-        logging.debug(f"Attempting to fetch DICOM binary data for instance {instance_id} for new model.")
-        headers = get_headers(token)
-        dicom_binary_url = f"{ORTHANC_URL}/instances/{instance_id}/file"
-        logging.debug(f"Requesting URL: {dicom_binary_url}")
-        logging.debug(f"Request headers: {headers}")
-
-        response = requests.get(dicom_binary_url, headers=headers, timeout=60)
-        response.raise_for_status()
-        logging.debug(f"Response size={len(response.content)} bytes, status={response.status_code}")
-
         with tempfile.NamedTemporaryFile(delete=False, suffix=".dcm") as tmp_file:
-            logging.debug("Starting to write DICOM to temp file...")
-            tmp_file.write(response.content)
+            dcmwrite(tmp_file.name, ds)
             temp_dicom_file_path = tmp_file.name
-        logging.debug(f"DICOM binary data saved to temporary file: {temp_dicom_file_path}")
+        logging.debug(f"DICOM dataset saved to temporary file: {temp_dicom_file_path}")
 
         # 2. Transform to adapt input of models (This is for the original model path)
         logging.debug("Start waveform extraction...")
@@ -85,21 +75,12 @@ async def predict(instance_id: str, request: PredictRequest):
         logging.debug(f"Combined predictions: {combined_predictions}")
 
         # --- MODIFIED LOGIC for storing ---
-        # We generate the comment string
         comment = "; ".join(f"{k}:{v:.3f}" for k, v in preds.items())
         comment += " | ResNet Top5: " + "; ".join(f"{k}:{v:.3f}" for k, v in new_model_predictions.items())
         logging.debug(f"Prepared comment string for PatientComments: {comment}")
 
-        # The in-memory modification using add_predictions_to_dicom is not used for /modify approach
-        # add_predictions_to_dicom is no longer imported or used.
-
-        # --- MODIFIED CALL to store_instance_dicom ---
         new_instance_id = await run_in_threadpool(store_instance_dicom, instance_id, comment, token)
-        # -------------------------------------
 
-        # --- MODIFIED RETURN ---
-        # We return the potentially None new_instance_id.
-        # The key name remains "modified_instance_id".
         return {"modified_instance_id": new_instance_id, "predictions": combined_predictions}
 
     except requests.exceptions.RequestException as e:

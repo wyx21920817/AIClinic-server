@@ -2,14 +2,12 @@
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-# Import the modified store_instance_dicom function (now returns str | None)
 import requests
 import tempfile
 import os
 import json
-from starlette.concurrency import run_in_threadpool
 from dicom_utils import get_instance_dicom, store_instance_dicom, ORTHANC_URL, get_headers
-from preprocess import extract_waveform # add_predictions_to_dicom is no longer used for /modify
+from preprocess import extract_waveform
 from model_utils import load_model, predict_ecg
 from pydicom import dcmread
 from ecg_ptbxl_benchmarking_master.extract_and_predict_ecg import process_and_predict 
@@ -20,16 +18,16 @@ from XAI.main import run_xai_tasks
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 load_dotenv()
+
 app = FastAPI()
 # mount static files
 app.mount("/static", StaticFiles(directory="XAI/static"), name="static")
-# load models when intialize
+
+# load models when initialize
 from model_utils import load_models
 load_models()
 
 import logging
-
-# set log record
 logging.basicConfig(level=logging.DEBUG)
 
 class PredictRequest(BaseModel):
@@ -44,8 +42,8 @@ async def predict(instance_id: str, request: PredictRequest):
     temp_dicom_file_path = None
 
     try:
-        # 1. Retrieve DICOM (Still need to retrieve to get waveform for original model)
-        ds = await run_in_threadpool(get_instance_dicom, instance_id, token)
+        # 1. Retrieve DICOM
+        ds = get_instance_dicom(instance_id, token)
         logging.debug(f"DICOM data retrieve success for original model.")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".dcm") as tmp_file:
@@ -53,9 +51,9 @@ async def predict(instance_id: str, request: PredictRequest):
             temp_dicom_file_path = tmp_file.name
         logging.debug(f"DICOM dataset saved to temporary file: {temp_dicom_file_path}")
 
-        # 2. Transform to adapt input of models (This is for the original model path)
+        # 2. Transform to adapt input of models
         logging.debug("Start waveform extraction...")
-        ecg, sampling_rate, lead_names = await run_in_threadpool(extract_waveform, ds)
+        ecg, sampling_rate, lead_names = extract_waveform(ds)
         logging.debug(f"ECG data extracted for original model with shape: {ecg.shape}")
         logging.debug(f"ECG data shape for original model prediction: {ecg.shape}.")
 
@@ -64,10 +62,12 @@ async def predict(instance_id: str, request: PredictRequest):
         combined_predictions = {}
 
         # 3. Predict (Original Model)
-        preds = await run_in_threadpool(predict_ecg, ecg)
+        preds = predict_ecg(ecg)
         logging.debug(f"Original model predict outcome: {preds}")
-        new_model_predictions = await run_in_threadpool(process_and_predict, temp_dicom_file_path)
+
+        new_model_predictions = process_and_predict(temp_dicom_file_path)
         logging.debug(f"New model predict outcome: {new_model_predictions}")
+
         combined_predictions = {
             "original_dnn_model": preds,
             "resnet_fine_tuned_model": new_model_predictions
@@ -79,7 +79,7 @@ async def predict(instance_id: str, request: PredictRequest):
         comment += " | ResNet Top5: " + "; ".join(f"{k}:{v:.3f}" for k, v in new_model_predictions.items())
         logging.debug(f"Prepared comment string for PatientComments: {comment}")
 
-        new_instance_id = await run_in_threadpool(store_instance_dicom, instance_id, comment, token)
+        new_instance_id = store_instance_dicom(instance_id, comment, token)
 
         return {"modified_instance_id": new_instance_id, "predictions": combined_predictions}
 
@@ -100,16 +100,12 @@ async def predict(instance_id: str, request: PredictRequest):
             except Exception as e:
                 logging.error(f"Failed to delete temporary file {temp_dicom_file_path}: {e}")
 
+
 class DiagnoseRequest(BaseModel):
     temp_token: str
 
 @app.post("/diagnose/{instance_id}")
 async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
-    """
-    ECG diagnostic API for external use
-    Simply enter the instance_id to automatically obtain a token and return the diagnostic results.
-    Also saves each diagnosis result to a local JSON file.
-    """
     logging.info(f"Receive a diagnostic request,Instance ID: {instance_id}")
 
     try:
@@ -119,7 +115,6 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
 
         logging.debug(f"Successfully obtained token for instance {instance_id}")
 
-        # request = PredictRequest(token=token)
         result = await predict(instance_id, PredictRequest(token=token))
 
         output = {
@@ -138,16 +133,13 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
         logging.error(f"Diagnostic failure,Instance ID: {instance_id}, error: {e}")
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(e)}")
 
+
 @app.post("/interprete/{instance_id}")
 async def interprete(
     instance_id: str,
     disease: List[str] = Form(...),
     temp_token: str = Form(...),
 ):
-    """
-    XAI interprete:
-    - call run_xai_tasks(abnormalities=disease, instance_id=instance_id)
-    """
     logging.info(f"[interprete] instance_id={instance_id}, disease={disease}")
 
     try:
@@ -155,13 +147,16 @@ async def interprete(
         if not token:
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
         abnormalities = disease
+
+        # ⚠️ interprete 保留 run_in_threadpool
+        from starlette.concurrency import run_in_threadpool
         xai_out = await run_in_threadpool(
             run_xai_tasks,
-            abnormalities,        # abnormalities
-            instance_id,          # instance_id
+            abnormalities,
+            instance_id,
             token,
-            True,                 # return_reports
-            True,                 # verbose
+            True,
+            True,
         )
 
         return {

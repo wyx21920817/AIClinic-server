@@ -44,24 +44,24 @@ async def predict(instance_id: str, request: PredictRequest):
 
     try:
         # 1. Retrieve DICOM (Still need to retrieve to get waveform for original model)
-        #ds = await run_in_threadpool(get_instance_dicom, instance_id, token)
+        ds = await run_in_threadpool(get_instance_dicom, instance_id, token)
         logging.debug(f"DICOM data retrieve success for original model.")
 
-        logging.debug(f"Attempting to fetch DICOM binary data for instance {instance_id} for new model.")
-        headers = get_headers(token)
-        dicom_binary_url = f"{ORTHANC_URL}/instances/{instance_id}/file"
-        logging.debug(f"Requesting URL: {dicom_binary_url}")
-        logging.debug(f"Request headers: {headers}")
+        # logging.debug(f"Attempting to fetch DICOM binary data for instance {instance_id} for new model.")
+        # headers = get_headers(token)
+        # dicom_binary_url = f"{ORTHANC_URL}/instances/{instance_id}/file"
+        # logging.debug(f"Requesting URL: {dicom_binary_url}")
+        # logging.debug(f"Request headers: {headers}")
 
-        response = requests.get(dicom_binary_url, headers=headers, timeout=60)
-        response.raise_for_status()
-        logging.debug(f"Response size={len(response.content)} bytes, status={response.status_code}")
+        # response = requests.get(dicom_binary_url, headers=headers, timeout=60)
+        # response.raise_for_status()
+        # logging.debug(f"Response size={len(response.content)} bytes, status={response.status_code}")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".dcm") as tmp_file:
-            logging.debug("Starting to write DICOM to temp file...")
-            tmp_file.write(response.content)
-            temp_dicom_file_path = tmp_file.name
-        logging.debug(f"DICOM binary data saved to temporary file: {temp_dicom_file_path}")
+        # with tempfile.NamedTemporaryFile(delete=False, suffix=".dcm") as tmp_file:
+        #     logging.debug("Starting to write DICOM to temp file...")
+        #     tmp_file.write(response.content)
+        #     temp_dicom_file_path = tmp_file.name
+        # logging.debug(f"DICOM binary data saved to temporary file: {temp_dicom_file_path}")
 
         # 2. Transform to adapt input of models (This is for the original model path)
         logging.debug("Start waveform extraction...")

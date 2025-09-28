@@ -31,8 +31,16 @@ def evaluate_experiment(y_true, y_pred, thresholds=None):
         results['F_beta_macro'] = challenge_scores['F_beta_macro']
         results['G_beta_macro'] = challenge_scores['G_beta_macro']
 
-    # label based metric
-    results['macro_auc'] = roc_auc_score(y_true, y_pred, average='macro')
+    # label-based metric - handle single-class cases
+    try:
+        results['macro_auc'] = roc_auc_score(y_true, y_pred, average='macro')
+    except ValueError as e:
+        if "Only one class present in y_true" in str(e):
+            # If some classes have only one label present, fall back to micro average
+            print(f"⚠️ Warning: Some classes have only one class, using micro average for AUC")
+            results['macro_auc'] = roc_auc_score(y_true, y_pred, average='micro')
+        else:
+            raise e
     
     df_result = pd.DataFrame(results, index=[0])
     return df_result
@@ -140,7 +148,8 @@ def load_raw_data_icbeb(df, sampling_rate, path):
             data = np.load(path+'raw100.npy', allow_pickle=True)
         else:
             data = [wfdb.rdsamp(path + 'records100/'+str(f)) for f in tqdm(df.index)]
-            data = np.array([signal for signal, meta in data])
+            # ICBEB 100Hz records may have variable lengths; store as object array
+            data = np.array([signal for signal, meta in data], dtype=object)
             pickle.dump(data, open(path+'raw100.npy', 'wb'), protocol=4)
     elif sampling_rate == 500:
         if os.path.exists(path + 'raw500.npy'):
@@ -169,11 +178,13 @@ def load_raw_data_ptbxl(df, sampling_rate, path):
     return data
 
 def compute_label_aggregations(df, folder, ctype):
-
+    
     df['scp_codes_len'] = df.scp_codes.apply(lambda x: len(x))
-
-    aggregation_df = pd.read_csv(folder+'scp_statements.csv', index_col=0)
-
+    
+    # Only load aggregation table if required by ctype
+    if ctype in ['diagnostic', 'subdiagnostic', 'superdiagnostic', 'form', 'rhythm']:
+        aggregation_df = pd.read_csv(folder+'scp_statements.csv', index_col=0)
+    
     if ctype in ['diagnostic', 'subdiagnostic', 'superdiagnostic']:
 
         def aggregate_all_diagnostic(y_dic):
@@ -316,7 +327,9 @@ def select_data(XX,YY, ctype, min_samples, outputfolder):
 def preprocess_signals(X_train, X_validation, X_test, outputfolder):
     # Standardize data such that mean 0 and variance 1
     ss = StandardScaler()
-    ss.fit(np.vstack(X_train).flatten()[:,np.newaxis].astype(float))
+    # Support variable-length records: concatenate all flattened samples
+    flat_train = np.concatenate([x.flatten() for x in X_train]).astype(float)[:, np.newaxis]
+    ss.fit(flat_train)
     
     # Save Standardizer data
     with open(outputfolder+'standard_scaler.pkl', 'wb') as ss_file:
@@ -329,8 +342,8 @@ def apply_standardizer(X, ss):
     for x in X:
         x_shape = x.shape
         X_tmp.append(ss.transform(x.flatten()[:,np.newaxis]).reshape(x_shape))
-    X_tmp = np.array(X_tmp)
-    return X_tmp
+    # Keep object array to support variable-length sequences
+    return np.array(X_tmp, dtype=object)
 
 
 # DOCUMENTATION STUFF
@@ -442,7 +455,7 @@ def ICBEBE_table(selection=None, folder='../output/'):
     print(md_source)
 
 def set_seed(seed=42):
-    """设置随机种子以确保结果可重现"""
+    """Set random seed for reproducibility."""
     import random
     import numpy as np
     import torch
@@ -459,14 +472,14 @@ def set_seed(seed=42):
 
 
 class EarlyStopping:
-    """早停机制，防止过拟合"""
+    """Early stopping to prevent overfitting."""
     
     def __init__(self, patience=10, min_delta=0.001, restore_best_weights=True):
         """
         Args:
-            patience: 容忍多少个epoch没有改善
-            min_delta: 最小改善阈值
-            restore_best_weights: 是否恢复最佳权重
+            patience: number of epochs to wait without improvement
+            min_delta: minimal improvement threshold
+            restore_best_weights: whether to restore the best weights
         """
         self.patience = patience
         self.min_delta = min_delta
@@ -477,14 +490,14 @@ class EarlyStopping:
         
     def __call__(self, val_loss, model):
         """
-        检查是否应该早停
+        Check whether early stopping should be triggered.
         
         Args:
-            val_loss: 验证损失
-            model: 模型对象
+            val_loss: validation loss
+            model: model object
             
         Returns:
-            bool: True表示应该停止训练
+            bool: True if training should stop
         """
         if val_loss < self.best_loss - self.min_delta:
             self.best_loss = val_loss
@@ -501,7 +514,7 @@ class EarlyStopping:
             return False
     
     def get_info(self):
-        """获取早停状态信息"""
+        """Get current early stopping state."""
         return {
             'best_loss': self.best_loss,
             'counter': self.counter,

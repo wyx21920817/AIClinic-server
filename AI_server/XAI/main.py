@@ -8,7 +8,7 @@ import re
 from .xai.ecg_utils import load_dicom_signals_from_dataset
 from .xai.explanations.validators import (
     validate_af, validate_st, validate_sb, validate_avb1, validate_lbbb, validate_rbbb, validate_nr,
-    validate_avb2, validate_aflt
+    validate_avb2, validate_aflt, validate_pac, validate_pvc
 )
 from .xai.explanations.normal import generate_normal_visuals
 from .xai.explanations.sb import generate_sb_visuals
@@ -20,6 +20,8 @@ from .xai.explanations.avb import generate_avb_visuals
 from .xai.explanations.avb2 import generate_avb2_visuals
 from .xai.explanations.avb3 import generate_avb3_visuals
 from .xai.explanations.aflt import generate_aflt_multilead, generate_aflt_visuals
+from .xai.explanations.pac import generate_pac_visuals
+from .xai.explanations.pvc import generate_pvc_visuals
 
 from dicom_utils import get_instance_dicom
 
@@ -77,7 +79,9 @@ VISUALIZATION_DISPATCHER = {
     "LBBB": generate_lbbb_visuals,
     "RBBB": generate_rbbb_visuals,
     "NORM": generate_normal_visuals,
-    "SB": generate_sb_visuals,
+    "SBRAD": generate_sb_visuals,
+    "PAC": generate_pac_visuals,
+    "PVC": generate_pvc_visuals,
 }
 
 
@@ -131,6 +135,9 @@ def run_xai_tasks(
     results = []
 
     for i, abn in enumerate(abnormalities_list):
+        # backward-compatibility: normalize old code 'SB' to 'SBRAD'
+        if abn == "SB":
+            abn = "SBRAD"
         if verbose:
             print(f"\n--- Processing Task {i+1}: {abn} for {instance_id} ---")
 
@@ -275,7 +282,8 @@ def run_xai_tasks(
                                 "3dAVB": "3rd Degree AV Block",
                                 "AFLT": "Atrial Flutter",
                                 "AFIB": "Atrial Fibrillation", 
-                                "STACH": "Sinus Tachycardia"
+                                "STACH": "Sinus Tachycardia",
+                                "SBRAD": "Sinus Bradycardia"
                             }
                             title = f"{title_map.get(abn, abn)} ({instance_id})"
                             report_data = visualization_func(ecg_signal, fs, title, lead_name, 
@@ -287,6 +295,35 @@ def run_xai_tasks(
                             }
                             title = f"{title_map.get(abn, abn)} ({instance_id})"
                             report_data = generate_aflt_multilead(leads_data, title, web_output_dir)
+                        elif abn == "PAC":
+                            preferred = ["II", "III", "aVF", "V1", "I"]
+                            lead_name = _pick_preferred_lead(leads_data, preferred)
+                            ecg_signal, fs = leads_data[lead_name]
+                            # Try fetch V1 for auxiliary P evidence
+                            v1_key = None
+                            for k in leads_data.keys():
+                                if _canonical_lead_name(k) == "V1":
+                                    v1_key = k
+                                    break
+                            aux_v1 = leads_data[v1_key][0] if v1_key else None
+                            title = f"Premature Atrial Complex ({instance_id})"
+                            meta = {'available_leads': list(leads_data.keys()), 'v1_key': v1_key}
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir, aux_v1=aux_v1, meta=meta)
+                        elif abn == "PVC":
+                            preferred = ["II", "III", "aVF", "I", "V1"]
+                            lead_name = _pick_preferred_lead(leads_data, preferred)
+                            ecg_signal, fs = leads_data[lead_name]
+                            # Try to fetch V1 for auxiliary analysis
+                            v1_key = None
+                            for k in leads_data.keys():
+                                if _canonical_lead_name(k) == "V1":
+                                    v1_key = k
+                                    break
+                            aux_v1 = leads_data[v1_key][0] if v1_key else None
+                            title = f"Premature Ventricular Complex ({instance_id})"
+                            # Pass aux_v1 and meta for debugging of lead selection
+                            meta = {'available_leads': list(leads_data.keys()), 'v1_key': v1_key}
+                            report_data = visualization_func(ecg_signal, fs, title, lead_name, web_output_dir, aux_v1=aux_v1, meta=meta)
                         else:
                             # get first available lead data (prefer II for rhythm if available)
                             preferred = ["II", "III", "aVF", "V1", "I"]
@@ -299,7 +336,8 @@ def run_xai_tasks(
                                 "3dAVB": "3rd Degree AV Block",
                                 "AFLT": "Atrial Flutter",
                                 "AFIB": "Atrial Fibrillation", 
-                                "STACH": "Sinus Tachycardia"
+                                "STACH": "Sinus Tachycardia",
+                                "SBRAD": "Sinus Bradycardia"
                             }
                             title = f"{title_map.get(abn, abn)} ({instance_id})"
                             report_data = visualization_func(ecg_signal, fs, title, lead_name, 
@@ -347,22 +385,27 @@ def run_xai_tasks(
                 try:
                     val = None
                     if abn == "AFIB":
-                        val = validate_af(report_data.get("metrics", {}))
+                        # All modules now use unified summary+statistics structure
+                        val = validate_af(report_data)
                     elif abn == "STACH":
-                        val = validate_st(report_data.get("metrics", {}))
-                    elif abn == "SB":
-                        val = validate_sb(report_data.get("metrics", {}))
+                        val = validate_st(report_data)
+                    elif abn == "SBRAD":
+                        val = validate_sb(report_data)
                     elif abn == "1dAVB":
-                        val = validate_avb1(report_data.get("metrics", {}))
+                        val = validate_avb1(report_data)
                     elif abn == "3dAVB":
                         from .xai.explanations.validators import validate_avb3
-                        val = validate_avb3(report_data.get("metrics", {}))
+                        val = validate_avb3(report_data)
                     elif abn == "LBBB":
-                        val = validate_lbbb(report_data.get("metrics", {}))
+                        val = validate_lbbb(report_data)
                     elif abn == "RBBB":
-                        val = validate_rbbb(report_data.get("metrics", {}))
+                        val = validate_rbbb(report_data)
                     elif abn == "NORM":
-                        val = validate_nr(report_data.get("metrics", {}))
+                        val = validate_nr(report_data)
+                    elif abn == "PAC":
+                        val = validate_pac(report_data)
+                    elif abn == "PVC":
+                        val = validate_pvc(report_data)
                     if val:
                         report_data["validation"] = val
                 except Exception as _e:
@@ -371,12 +414,14 @@ def run_xai_tasks(
                 # Additional validators
                 if abn == "2dAVB":
                     try:
-                        report_data["validation"] = validate_avb2(report_data.get("metrics", {}))
+                        # Use unified report structure
+                        report_data["validation"] = validate_avb2(report_data)
                     except Exception:
                         pass
                 if abn == "AFLT":
                     try:
-                        report_data["validation"] = validate_aflt(report_data.get("metrics", {}))
+                        # Use unified report structure
+                        report_data["validation"] = validate_aflt(report_data)
                     except Exception:
                         pass
 

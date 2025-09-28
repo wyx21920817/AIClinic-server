@@ -10,11 +10,11 @@ from .code.models.xresnet1d import xresnet1d101
 import pickle
 import torch.nn.functional as F
 
-# -------------------- 配置 --------------------
-# 微调实验的输出根目录
+# -------------------- Config --------------------
+# Output root for fine-tuning experiment
 
 HERE             = os.path.dirname(os.path.realpath(__file__))
-# 直接以本脚本所在文件夹（ecg_ptbxl_benchmarking_master）为根
+# Use this script's folder (ecg_ptbxl_benchmarking_master) as root
 BASE_PATH_FT     = os.path.join(HERE, 'output', 'exp0_ft')
 DATA_DIR_FT      = os.path.join(BASE_PATH_FT, 'data')
 MODELS_DIR_FT    = os.path.join(BASE_PATH_FT, 'models')
@@ -23,7 +23,7 @@ WEIGHTS_FILE_FT  = os.path.join(
     'fastai_xresnet1d101_finetuned_manual.pth'
 )
 
-# 随机种子
+# Random seed
 SEED = 42
 
 # ----------------------------------------------
@@ -35,34 +35,34 @@ def set_seed(seed=SEED):
         torch.cuda.manual_seed_all(seed)
 
 def load_model(weights_path, n_in, n_out, device='cpu'):
-    # 1. 载入 checkpoint
+    # 1. Load checkpoint
     ckpt = torch.load(weights_path, map_location=device)
     state = ckpt.get('model', ckpt)
 
-    # 2. 从 state 推断分类头 hidden_size
+    # 2. Infer classification head hidden_size from state
     hidden_size = None
     for k,v in state.items():
         if v.ndim==2 and v.shape[0]==n_out:
             hidden_size = v.shape[1]
-            print(f"🔍 hidden_size={hidden_size} (from `{k}`)")
+            print(f"Hidden size inferred from `{k}`: {hidden_size}")
             break
     if hidden_size is None:
-        print(f"❌ 无法推断 hidden_size (n_out={n_out})")
+        print(f"Failed to infer hidden_size (n_out={n_out})")
         return None
 
-    # 3. 重建模型
+    # 3. Rebuild model
     model = xresnet1d101(
         input_channels=n_in,
         num_classes=n_out,
         lin_ftrs_head=[hidden_size]
     ).to(device)
 
-    # 4. 严格加载权重
+    # 4. Strictly load weights
     try:
         model.load_state_dict(state, strict=True)
-        print("✅ finetuned model weights loaded successfully")
+        print("Finetuned model weights loaded successfully")
     except Exception as e:
-        print("❌ Error loading weights:", e)
+        print("Error loading weights:", e)
         return None
 
     model.eval()
@@ -91,7 +91,7 @@ def predict_ecg(record_base, model, device, idx2name, scaler, top_k=5):
         print(f"  {idx2name[i]:15s} prob={probs[i]:.3f}")
 
 def load_data_and_scaler(base_path=BASE_PATH_FT):
-    # 从微调目录加载 scaler 和 mlb
+    # Load scaler and mlb from fine-tuning directory
     sp = os.path.join(base_path, 'data', 'standard_scaler.pkl')
     mp = os.path.join(base_path, 'data', 'mlb.pkl')
     print("scaler:", sp)

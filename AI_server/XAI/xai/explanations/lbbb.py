@@ -175,19 +175,34 @@ def generate_lbbb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     # 6) Report
     report_text = generate_report_bbb(ecg_title, lead_name, estimation_type, qrs_durations_sec)
     print(report_text)
-    metrics = {}
+    
+    # Calculate statistics directly
+    qrs_mean = None
+    wide_qrs_count = 0
+    total_qrs_count = 0
+    
     if qrs_durations_sec:
         qrs_arr = np.array(qrs_durations_sec)
-        metrics = {
-            'qrs_mean_s': float(np.mean(qrs_arr)),
-            'wide_qrs_count': int(np.sum(qrs_arr > 0.12)),
-            'total_qrs_count': int(qrs_arr.size)
-        }
+        qrs_mean = float(np.mean(qrs_arr))
+        wide_qrs_count = int(np.sum(qrs_arr > 0.12))
+        total_qrs_count = int(qrs_arr.size)
+    
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(qrs_mean and qrs_mean >= 0.12),
+        'abnormality_count': int(wide_qrs_count),
+    }
+    statistics = {
+        'qrs_mean_s': qrs_mean,
+        'wide_qrs_count': wide_qrs_count,
+        'total_qrs_count': total_qrs_count,
+    }
     return {
         'title': ecg_title,
         'lead_name': lead_name,
         'report_text': report_text,
-        'metrics': metrics,
+        'summary': summary,
+        'statistics': statistics,
         'image_paths': {'lbbb_qrs_analysis.png': os.path.join(output_dir, 'lbbb_qrs_analysis.png')}
     }
 
@@ -471,25 +486,25 @@ def generate_lbbb_multilead(record_name=None, dicom_filepath=None, db_dir=None, 
         f"\nSimple Conclusion: {conclusion}"
     ])
 
-    metrics = {
-        "qrs_mean_s": qrs_mean if not np.isnan(qrs_mean) else None,
-        "wide_qrs_proportion": prop_wide if not np.isnan(prop_wide) else None,
-        "deep_s_v1": deep_s_count > 0,
-        "broad_r_lateral": broad_r_count > 0,
-        "qrs_category_counts": rs_counts,
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(qrs_pool and (qrs_mean >= 0.12) and (broad_r_count > 0) and (deep_s_count > 0)),
+        'abnormality_count': int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0,
     }
-
+    statistics = {
+        'qrs_mean_s': qrs_mean if not np.isnan(qrs_mean) else None,
+        'wide_qrs_proportion': prop_wide if not np.isnan(prop_wide) else None,
+        'deep_s_v1': deep_s_count > 0,
+        'broad_r_lateral': broad_r_count > 0,
+        'qrs_category_counts': rs_counts,
+    }
     return {
-        "title": f"LBBB Screening ({record_name})",
-        "report_text": report_text,
-        "metrics": metrics,
-        "image_paths": {
-            "lbbb_leads_analysis.png": os.path.join(output_dir, "lbbb_leads_analysis.png"),
-            "lbbb_qrs_histogram.png": os.path.join(output_dir, "lbbb_qrs_histogram.png")
-        },
-        "criteria_flags": {
-            "mean_qrs_ge_0_12": bool(qrs_pool and (qrs_mean >= 0.12)),
-            "deep_s_v1": deep_s_count > 0,
-            "broad_r_lateral": broad_r_count > 0,
+        'title': f'LBBB Screening ({record_name})',
+        'report_text': report_text,
+        'summary': summary,
+        'statistics': statistics,
+        'image_paths': {
+            'lbbb_leads_analysis.png': os.path.join(output_dir, 'lbbb_leads_analysis.png'),
+            'lbbb_qrs_histogram.png': os.path.join(output_dir, 'lbbb_qrs_histogram.png')
         }
     }

@@ -65,13 +65,21 @@ def generate_af_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
     report_text = generate_report_afib(ecg_title, lead_name)
     print(report_text)
     
-    metrics = {"error": "Not enough R-peaks."} if rr_intervals_sec.size == 0 else {
+    # summary/statistics
+    is_present = bool(rr_intervals_sec.size and (np.std(rr_intervals_sec) / np.mean(rr_intervals_sec) >= 0.12))
+    summary = {
+        "report_text": report_text,
+        "is_abnormality_present": is_present,
+        "abnormality_count": 1 if is_present else 0,
+    }
+    statistics = {} if rr_intervals_sec.size == 0 else {
         "rr_min_s": float(np.min(rr_intervals_sec)), "rr_max_s": float(np.max(rr_intervals_sec)),
         "rr_mean_s": float(np.mean(rr_intervals_sec)), "rr_std_s": float(np.std(rr_intervals_sec)),
-        "rr_interval_count": len(rr_intervals_sec)
+        "rr_interval_count": int(len(rr_intervals_sec))
     }
 
-    return {"title": ecg_title, "lead_name": lead_name, "report_text": report_text, "metrics": metrics,
+    return {"title": ecg_title, "lead_name": lead_name, "report_text": report_text,
+            "summary": summary, "statistics": statistics,
             "image_paths": {
                 "afib_ecg_with_rpeaks.png": os.path.join(output_dir, "afib_ecg_with_rpeaks.png"),
                 "afib_rr_histogram.png": os.path.join(output_dir, "afib_rr_histogram.png"),

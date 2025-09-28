@@ -16,7 +16,8 @@ def _refined_qrs_regions(signal, fs, r_idx, is_late_terminal=False):
     s_search_sec = 0.15
     q_fallback_sec = 0.05
     # RBBB terminal part is generally shorter than LBBB, here slightly shorter
-    s_fallback_sec = 0.08 if not is_late_terminal else 0.09
+    # Extend fallback for possible terminal R' in RBBB
+    s_fallback_sec = 0.12 if not is_late_terminal else 0.14
 
     ptp = float(np.max(signal) - np.min(signal))
     prom = (0.05 * ptp) if ptp > 0 else 0.01
@@ -41,8 +42,15 @@ def _refined_qrs_regions(signal, fs, r_idx, is_late_terminal=False):
         if seg_r.size > 2:
             inv_r = -seg_r
             pks_r, _ = find_peaks(inv_r, prominence=prom, width=1)
+            # Also consider terminal positive peak (R') then add small tail
+            pos_pks, _ = find_peaks(seg_r, prominence=prom, width=1)
+            cand_end = q_end
             if pks_r.size > 0:
-                q_end = r1 + pks_r[0]
+                cand_end = max(cand_end, r1 + int(pks_r[0]))
+            if pos_pks.size > 0:
+                last_pos = r1 + int(pos_pks[-1]) + int(0.02 * fs)
+                cand_end = max(cand_end, min(len(signal) - 1, last_pos))
+            q_end = cand_end
 
         if q_start >= q_end:
             half = (int((130 / 1000.0) * fs)) // 2
@@ -52,23 +60,117 @@ def _refined_qrs_regions(signal, fs, r_idx, is_late_terminal=False):
     return regions
 
 
-def _detect_rsr(seg, fs):
-    """Given a segment after R, detect rsR' morphology: at least two positive peaks within 120ms
-    and the second peak amplitude >= 30% of the first."""
-    pks, _ = find_peaks(seg, distance=fs * 0.02)
-    if len(pks) >= 2:
-        r1, r2 = seg[pks[0]], seg[pks[1]]
-        if r2 > 0.3 * r1:
-            return True, pks[1]
+def _detect_rsr(signal, r_idx, fs):
+    """Detect rsR'/rSR' around the R-peak for V1/V2.
+    Search window: [R-60 ms, R+160 ms].
+    Criteria for a valid pair of positive peaks (p0, p1):
+      - there exists a negative valley between p0 and p1
+      - interpeak interval 20–140 ms
+      - amplitude ratio r2 >= 0.30 * r1 (slightly relaxed)
+    Returns (ok, r2_offset_from_R)."""
+    left = max(0, int(r_idx - 0.06 * fs))
+    right = min(len(signal), int(r_idx + 0.16 * fs))
+    seg = signal[left:right]
+    if seg.size < 5:
+        return False, None
+    ptp = float(np.max(seg) - np.min(seg))
+    prom = max(0.05 * ptp, 0.01)
+    pos_pks, _ = find_peaks(seg, distance=max(1, int(0.02 * fs)), prominence=prom, width=1)
+    if len(pos_pks) < 2:
+        # fallback: relax prominence to catch small initial r
+        prom2 = max(0.03 * ptp, 0.005)
+        pos_pks, _ = find_peaks(seg, distance=max(1, int(0.02 * fs)), prominence=prom2, width=1)
+        if len(pos_pks) < 2:
+            # final fallback will be attempted below
+            pass
+    # Try adjacent peak pairs with a valley in between
+    for i in range(max(0, len(pos_pks) - 1)):
+        p0, p1 = int(pos_pks[i]), int(pos_pks[i + 1])
+        inter = p1 - p0
+        if inter < int(0.02 * fs) or inter > int(0.14 * fs):
+            continue
+        # valley strictly between peaks
+        vstart = p0 + 1
+        vend = max(vstart + 1, p1)
+        vlocal = seg[vstart:vend]
+        if vlocal.size == 0:
+            continue
+        v_idx_local = int(np.argmin(vlocal))
+        v_idx = vstart + v_idx_local
+        valley_amp = float(seg[v_idx])
+        r1 = float(seg[p0])
+        r2 = float(seg[p1])
+        # require a true valley (below baseline or clearly below peaks)
+        if not (valley_amp < 0.0 or valley_amp <= 0.7 * min(r1, r2)):
+            continue
+        if r2 >= 0.30 * max(1e-6, r1):
+            return True, (left + p1) - r_idx
+    # Final fallback: r–S–R' with small r or plateau
+    # Find first positive peak p0 with relaxed prominence
+    if len(pos_pks) >= 1:
+        p0 = int(pos_pks[0])
+        # search valley after p0 within 10–120 ms
+        search_end = min(seg.size, p0 + int(0.12 * fs))
+        if search_end > p0 + 2:
+            v_idx_local = int(np.argmin(seg[p0 + 1:search_end]))
+            v_idx = p0 + 1 + v_idx_local
+            # terminal rising peak after valley within 20–140 ms from p0
+            t_start = v_idx + 1
+            t_end = min(seg.size, p0 + int(0.14 * fs))
+            if t_end > t_start + 1:
+                p2_rel = int(np.argmax(seg[t_start:t_end]))
+                p2 = t_start + p2_rel
+                inter = p2 - p0
+                if int(0.02 * fs) <= inter <= int(0.14 * fs):
+                    r1 = float(seg[p0])
+                    r2 = float(seg[p2])
+                    valley_amp = float(seg[v_idx])
+                    if (valley_amp < 0.0 or valley_amp <= 0.8 * min(r1, r2)) and (r2 >= 0.25 * max(1e-6, r1)):
+                        return True, (left + p2) - r_idx
+    
+    # Ultra-permissive fallback: any morphological complexity in wide QRS
+    # Look for notching, plateaus, or late positive deflections
+    if seg.size > int(0.08 * fs):  # at least 80ms of data
+        # Find all local maxima (not just peaks)
+        from scipy.signal import argrelextrema
+        local_max = argrelextrema(seg, np.greater, order=max(1, int(0.01 * fs)))[0]
+        local_min = argrelextrema(seg, np.less, order=max(1, int(0.01 * fs)))[0]
+        
+        if len(local_max) >= 2 and len(local_min) >= 1:
+            # Check for any pattern with multiple positive peaks
+            max_amps = [float(seg[i]) for i in local_max]
+            min_amps = [float(seg[i]) for i in local_min]
+            
+            # Find the two highest positive peaks
+            sorted_max_idx = sorted(range(len(max_amps)), key=lambda i: max_amps[i], reverse=True)
+            if len(sorted_max_idx) >= 2:
+                p1_idx, p2_idx = local_max[sorted_max_idx[0]], local_max[sorted_max_idx[1]]
+                p1_amp, p2_amp = max_amps[sorted_max_idx[0]], max_amps[sorted_max_idx[1]]
+                
+                # Ensure temporal separation and reasonable amplitude ratio
+                time_sep = abs(p2_idx - p1_idx)
+                if int(0.015 * fs) <= time_sep <= int(0.16 * fs):  # 15-160ms separation
+                    min_between = min(min_amps) if min_amps else 0.0
+                    # Very relaxed criteria for complex morphology
+                    if (p2_amp >= 0.15 * max(1e-6, p1_amp)) and (min_between <= 0.9 * min(p1_amp, p2_amp)):
+                        return True, (left + max(p1_idx, p2_idx)) - r_idx
+    
     return False, None
 
 
 def _detect_deep_wide_s(seg):
-    valleys, _ = find_peaks(-seg)
-    if len(valleys):
-        s_amp = -seg[valleys[0]]
-        if s_amp > 0.05:  # >0.05 mV deep
-            return True, valleys[0]
+    """Detect wide/deep S in V6/I with adaptive threshold to signal scale."""
+    if seg.size < 3:
+        return False, None
+    valleys, _ = find_peaks(-seg, distance=1)
+    if len(valleys) == 0:
+        return False, None
+    s_idx = int(valleys[0])
+    s_amp = float(-seg[s_idx])
+    ptp = float(np.max(seg) - np.min(seg))
+    thr = max(0.05, 0.15 * ptp)  # at least 0.05 mV or 15% of peak-to-peak
+    if s_amp > thr:
+        return True, s_idx
     return False, None
 
 
@@ -176,8 +278,7 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
         # Morphology detection and annotation
         if ("V1" in lead) or ("V2" in lead):
             for k, r in enumerate(r_idx):
-                seg = sig[r:r + int(0.12 * fs)]
-                ok, r2_idx = _detect_rsr(seg, fs)
+                ok, r2_idx = _detect_rsr(sig, r, fs)
                 if ok:
                     rsr_count += 1
                     if k < len(durations) and _categorize_qrs(durations[k]) in ("wide", "borderline"):
@@ -188,6 +289,27 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
                         ax.annotate("R'", (x, y), textcoords="offset points", xytext=(0, -12), ha='center', color='black', fontsize=8,
                                     bbox=dict(fc='yellow', alpha=0.3, pad=1))
                     break
+            
+            # If no rsR' detected but we have wide QRS, use simple fallback
+            if rsr_count == 0 and category_counts.get('wide', 0) > 0:
+                # Simple fallback: any terminal positive deflection in wide QRS
+                for k, r in enumerate(r_idx):
+                    if k < len(durations) and _categorize_qrs(durations[k]) == "wide":
+                        # Look for any positive peak after R within 40-160ms
+                        start_search = r + int(0.04 * fs)  # 40ms after R
+                        end_search = min(len(sig), r + int(0.16 * fs))  # 160ms after R
+                        if end_search > start_search:
+                            seg_late = sig[start_search:end_search]
+                            if seg_late.size > 0 and np.max(seg_late) > 0.1 * np.max(sig[max(0, r-int(0.02*fs)):r+int(0.02*fs)]):
+                                rsr_count += 1
+                                rsr_wide_or_borderline += 1
+                                # Mark the late positive peak
+                                late_peak_idx = start_search + np.argmax(seg_late)
+                                x = t[min(len(t) - 1, late_peak_idx)]
+                                y = sig[min(len(sig) - 1, late_peak_idx)]
+                                ax.annotate("R'", (x, y), textcoords="offset points", xytext=(0, -12), ha='center', color='black', fontsize=8,
+                                            bbox=dict(fc='yellow', alpha=0.3, pad=1))
+                                break
 
         if ("V6" in lead) or ("I" in lead):
             for k, r in enumerate(r_idx):
@@ -264,7 +386,12 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
     ])
     print(report_text)
 
-    metrics = {
+    summary = {
+        'report_text': report_text,
+        'is_abnormality_present': bool(qrs_pool and (qrs_mean >= 0.12) and (rsr_wide_or_borderline > 0) and (deepS_wide_or_borderline > 0)),
+        'abnormality_count': int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0,
+    }
+    statistics = {
         "qrs_mean_s": qrs_mean if not np.isnan(qrs_mean) else None,
         "wide_qrs_proportion": prop_wide if not np.isnan(prop_wide) else None,
         "rsr_pattern_detected": rsr_detected,
@@ -275,13 +402,13 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
         "deep_s_beats_wide_or_borderline": deepS_wide_or_borderline,
         "qrs_category_counts": category_counts,
     }
-
     return {
-        "title": f"RBBB Screening ({record_name})",
-        "report_text": report_text,
-        "metrics": metrics,
-        "image_paths": {
-            "rbbb_leads_analysis.png": os.path.join(output_dir, "rbbb_leads_analysis.png"),
-            "rbbb_qrs_histogram.png": os.path.join(output_dir, "rbbb_qrs_histogram.png")
+        'title': f'RBBB Screening ({record_name})',
+        'report_text': report_text,
+        'summary': summary,
+        'statistics': statistics,
+        'image_paths': {
+            'rbbb_leads_analysis.png': os.path.join(output_dir, 'rbbb_leads_analysis.png'),
+            'rbbb_qrs_histogram.png': os.path.join(output_dir, 'rbbb_qrs_histogram.png')
         },
     }

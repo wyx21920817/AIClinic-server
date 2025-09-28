@@ -20,6 +20,17 @@ wheels/
 .installed.cfg
 *.egg
 
+# doc
+ecg_ptbxl_benchmarking_master/data/
+**/*.hea
+**/*.hea-
+**/*.dat
+**/*.dcm
+**/*.atr
+**/*.xws
+**/*.npy
+**/*.mat
+
 # AI
 *.pth
 *.pkl

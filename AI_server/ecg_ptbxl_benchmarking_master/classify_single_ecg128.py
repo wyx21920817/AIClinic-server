@@ -8,7 +8,7 @@ from code.models.xresnet1d import xresnet1d101
 import pickle
 import torch.nn.functional as F
 
-# 设置随机种子以确保每次预测的一致性
+# Set random seed for reproducible predictions
 def set_seed(seed=42):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -19,33 +19,33 @@ def set_seed(seed=42):
 
 def load_model(weights_path, n_in, n_out, device='cpu'):
     """
-    加载模型并设置为推理模式。
-    n_in: 输入通道数（通常是 12 导联）
-    n_out: 类别数（等于 label_binarizer.classes_ 的长度，71）
+    Load model and set to eval mode.
+    n_in: number of input channels (typically 12 leads)
+    n_out: number of classes (e.g., len(label_binarizer.classes_), 71)
     """
     # 1. 读取 checkpoint
     ckpt = torch.load(weights_path, map_location=device)
     state = ckpt.get('model', ckpt)
 
-    # 2. 从 checkpoint 中找到分类头第一层的 weight，推断 hidden_size
+    # 2. Infer hidden_size from the first linear layer of the head in checkpoint
     hidden_size = None
     for k, v in state.items():
         if v.ndim == 2 and v.shape[0] == n_out:
             hidden_size = v.shape[1]
-            print(f"🔍 Infer the intermediate dimension of the classification head hidden_size = {hidden_size}（from checkpoint key `{k}`）")
+            print(f"Inferred hidden_size from `{k}`: {hidden_size}")
             break
     if hidden_size is None:
         print(f"❌ Unable to infer hidden_size from checkpoint (n_out={n_out})")
         return None
 
-    # 3. 构造完全一致的模型：512 -> hidden_size -> n_out
+    # 3. Build identical model: 512 -> hidden_size -> n_out
     model = xresnet1d101(
         input_channels=n_in,
         num_classes=n_out,
         lin_ftrs_head=[hidden_size],
     ).to(device)
 
-    # 4. 严格加载所有权重（包括分类头）
+    # 4. Strictly load all weights (including head)
     try:
         model.load_state_dict(state, strict=True)
         print("✅ finetuned model weights loaded successfully")
@@ -59,7 +59,7 @@ def load_model(weights_path, n_in, n_out, device='cpu'):
 
 def preprocess_signal(sig, scaler=None):
     """
-    对 ECG 信号进行标准化处理。
+    Standardize ECG signal
     """
     flat = sig.flatten()[:, None]
     if scaler is not None:
@@ -72,12 +72,12 @@ def preprocess_signal(sig, scaler=None):
 
 def predict_ecg(record_base, model, device, class_index_to_name, scaler, top_k=5):
     """
-    对单条心电记录进行推理，输出概率最高的前 top_k 个标签及其概率。
+    Inference on a single ECG record, output top_k classes and probabilities
     """
     rec = wfdb.rdrecord(record_base)
-    sig = rec.p_signal.astype(np.float32).T  # 转置为 (通道, 时间)
+    sig = rec.p_signal.astype(np.float32).T  # transpose to (channels, time)
     sig, scaler = preprocess_signal(sig, scaler)
-    x = torch.from_numpy(sig).unsqueeze(0).to(device)  # (1, 通道, 时间)
+    x = torch.from_numpy(sig).unsqueeze(0).to(device)  # (1, channels, time)
 
     with torch.no_grad():
         logits = model(x)               # (1, n_out)
@@ -93,7 +93,7 @@ def predict_ecg(record_base, model, device, class_index_to_name, scaler, top_k=5
 
 def load_data_and_scaler(base_path='output/exp0'):
     """
-    加载标准化器和 MultiLabelBinarizer，并打印规范化后的路径。
+    Load StandardScaler and MultiLabelBinarizer; print normalized paths
     """
     scaler_p = os.path.normpath(os.path.join(base_path, 'data', 'standard_scaler.pkl'))
     mlb_p    = os.path.normpath(os.path.join(base_path, 'data', 'mlb.pkl'))
@@ -111,7 +111,7 @@ def load_data_and_scaler(base_path='output/exp0'):
 
 def build_class_map(mlb):
     """
-    构建从类别索引到名称的映射。
+    Build mapping from class index to name
     """
     return {i: cls for i, cls in enumerate(mlb.classes_)}
 
@@ -120,8 +120,8 @@ if __name__ == '__main__':
     set_seed(42)
 
     if len(sys.argv) != 2:
-        print("用法: python classify_single_ecg.py <record_base>")
-        print("示例: python classify_single_ecg.py data/ptbxl/records100/00000/00002_lr")
+        print("Usage: python classify_single_ecg.py <record_base>")
+        print("Example: python classify_single_ecg.py data/ptbxl/records100/00000/00002_lr")
         sys.exit(1)
 
     record_base = os.path.normpath(sys.argv[1])
@@ -131,18 +131,18 @@ if __name__ == '__main__':
         'fastai_xresnet1d101.pth'
     ))
 
-    # 1. 加载 scaler 和 标签编码器
+    # 1. Load scaler and label binarizer
     scaler, mlb = load_data_and_scaler('output/exp0')
     class_map = build_class_map(mlb)
 
-    # 2. 设置类别数为实际标签数
+    # 2. Set class count to actual labels length
     NUM_CLASSES = len(mlb.classes_)  # 71
 
-    # 3. 加载模型
+    # 3. Load model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = load_model(weights_path, n_in=12, n_out=NUM_CLASSES, device=device)
     if model is None:
         sys.exit(1)
 
-    # 4. 推理并输出前 5 个标签
+    # 4. Inference and print top-5 labels
     predict_ecg(record_base, model, device, class_map, scaler, top_k=5)

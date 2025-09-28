@@ -23,7 +23,7 @@ def discover_records(records_dir: Path):
     hea_files = sorted(records_dir.glob('*.hea'))
     tasks = []
     for hea in hea_files:
-        base = hea.stem  # 例如 100, 1001
+        base = hea.stem  # e.g., 100, 1001
         tasks.append((base, records_dir))
     return tasks
 

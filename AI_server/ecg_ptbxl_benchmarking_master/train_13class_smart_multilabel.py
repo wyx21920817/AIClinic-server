@@ -21,27 +21,28 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # CUDA GPU优化设置
+# CUDA GPU optimization settings
 def setup_cuda_optimization():
-    """设置CUDA GPU优化参数"""
+    """Configure CUDA GPU optimization parameters"""
     if torch.cuda.is_available():
         print(f"🚀 Setting up CUDA optimization...")
         
-        # 启用cuDNN自动调优
+        # Enable cuDNN autotuner
         cudnn.benchmark = True
-        cudnn.deterministic = False  # 为了速度，允许非确定性操作
+        cudnn.deterministic = False  # Allow non-determinism for speed
         
-        # 设置CUDA内存分配策略
+        # Set CUDA memory allocation strategy
         os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
         
-        # 启用混合精度训练
+        # Enable mixed precision training
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         
-        # 设置CUDA设备
+        # Set CUDA device
         device = torch.device('cuda')
-        torch.cuda.set_device(0)  # 使用第一个GPU
+        torch.cuda.set_device(0)  # Use the first GPU
         
-        # 清理GPU缓存
+        # Clean GPU caches
         torch.cuda.empty_cache()
         
         print(f"   ✅ CUDA optimization enabled")
@@ -55,11 +56,11 @@ def setup_cuda_optimization():
         print(f"   ⚠️ CUDA not available, using CPU")
         return torch.device('cpu')
 
-# 初始化CUDA优化
+# Initialize CUDA optimization
 device = setup_cuda_optimization()
 
 def get_gpu_memory_info():
-    """获取GPU内存使用信息"""
+    """Get GPU memory usage info"""
     if torch.cuda.is_available():
         allocated = torch.cuda.memory_allocated(0) / 1024**3
         cached = torch.cuda.memory_reserved(0) / 1024**3
@@ -68,13 +69,13 @@ def get_gpu_memory_info():
     return 0, 0, 0
 
 def print_gpu_memory():
-    """打印GPU内存使用情况"""
+    """Print GPU memory usage"""
     if torch.cuda.is_available():
         allocated, cached, total = get_gpu_memory_info()
         print(f"   💾 GPU Memory: {allocated:.1f}GB allocated, {cached:.1f}GB cached, {total:.1f}GB total")
 
 def optimize_gpu_memory():
-    """优化GPU内存使用"""
+    """Optimize GPU memory usage"""
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
@@ -112,8 +113,8 @@ def select_data_without_save(XX, YY, ctype, min_samples):
         mlb.fit(Y.superdiagnostic.values)
         y = mlb.transform(Y.superdiagnostic.values)
     elif ctype == 'all':
-        # 使用所有scp_codes (正确的逻辑)
-        # 首先确保all_scp_len存在
+        # Use all scp_codes (correct logic)
+        # Ensure all_scp_len exists
         if 'all_scp_len' not in YY.columns:
             YY['all_scp_len'] = YY.all_scp.apply(lambda x: len(x))
         
@@ -129,11 +130,11 @@ def select_data_without_save(XX, YY, ctype, min_samples):
     else:
         pass
 
-    # 不保存mlb.pkl文件，避免重复
+    # Do not save mlb.pkl to avoid duplicates
     return X, Y, y, mlb
 
 def test_gpu_performance():
-    """测试GPU性能"""
+    """Test GPU performance"""
     if not torch.cuda.is_available():
         print(f"   ⚠️ CUDA not available, skipping GPU performance test")
         return
@@ -141,11 +142,11 @@ def test_gpu_performance():
     print(f"   🧪 Testing GPU performance...")
     
     try:
-        # 创建测试数据
+        # Create test data
         test_data = torch.randn(1000, 12, 1000).cuda()
         test_target = torch.randn(1000, 13).cuda()
         
-        # 测试矩阵乘法性能
+        # Test matrix multiplication performance
         start_time = torch.cuda.Event(enable_timing=True)
         end_time = torch.cuda.Event(enable_timing=True)
         
@@ -159,7 +160,7 @@ def test_gpu_performance():
         
         print(f"   ⚡ GPU Matrix multiplication: {elapsed_time:.2f}ms for 100 iterations")
         
-        # 安全地获取GPU利用率（避免NVML错误）
+        # Safely get GPU utilization (avoid NVML errors)
         try:
             gpu_util = torch.cuda.utilization(0)
             print(f"   📊 GPU utilization: {gpu_util}%")
@@ -167,7 +168,7 @@ def test_gpu_performance():
             print(f"   ⚠️ GPU utilization unavailable: {str(e)[:50]}...")
             print(f"   💡 This is normal on some systems without NVML")
         
-        # 清理测试数据
+        # Clean test tensors
         del test_data, test_target, result
         optimize_gpu_memory()
         
@@ -176,33 +177,33 @@ def test_gpu_performance():
         print(f"   💡 Continuing with training...")
         optimize_gpu_memory()
 
-# 添加项目路径
+# Add project path
 sys.path.append('code')
 from models.fastai_model import fastai_model
 from models.timeseries_utils import TimeseriesDatasetCrops
 from utils.utils import load_dataset, compute_label_aggregations, select_data
 
-# 配置参数
+# Config
 PTBXL_DATA_DIR = "data/ptbxl/"
 OUTPUT_MODELS = "output/exp_13class_smart_multilabel"
 OUTPUT_DATA = "output/exp_13class_smart_multilabel/data"
 SAMPLING_RATE = 100
 
-# 训练模式配置
-FAST_TRAINING = False  # 设置为True启用快速训练模式
+# Training mode config
+FAST_TRAINING = False  # Set True to enable fast training mode
 
-# GPU训练优化配置
+# GPU training optimization config
 GPU_OPTIMIZATION = {
-    'use_amp': True,              # 使用自动混合精度训练
-    'use_compile': False,         # 使用torch.compile优化 (暂时禁用，避免兼容性问题)
-    'use_pin_memory': True,       # 使用固定内存
-    'use_non_blocking': True,     # 使用非阻塞传输
-    'num_workers': 2,             # 数据加载器工作进程数 (减少以避免Windows问题)
-    'prefetch_factor': 2,         # 预取因子
-    'persistent_workers': False,  # 持久化工作进程 (Windows兼容性)
+    'use_amp': True,              # Automatic mixed precision
+    'use_compile': False,         # torch.compile (disabled for compatibility)
+    'use_pin_memory': True,       # Pin memory
+    'use_non_blocking': True,     # Non-blocking transfer
+    'num_workers': 2,             # DataLoader workers (reduced for Windows)
+    'prefetch_factor': 2,         # Prefetch factor
+    'persistent_workers': False,  # Persistent workers (Windows compatibility)
 }
 
-# 目标类别（13个）
+# Target classes (13)
 TARGET_CLASSES = [
     'NORM', '1AVB', '2AVB', '3AVB', 'AFIB', 'AFLT',
     'ILBBB', 'CLBBB', 'IRBBB', 'CRBBB', 'STACH', 'PAC', 'PVC'
@@ -219,7 +220,7 @@ def load_ptbxl_data():
         labels_df = compute_label_aggregations(raw_labels, PTBXL_DATA_DIR, 'all')
         
         # Select data and convert to one-hot (without saving mlb.pkl)
-        # 首先确保all_scp_len存在
+        # Ensure all_scp_len exists
         if 'all_scp_len' not in labels_df.columns:
             labels_df['all_scp_len'] = labels_df.all_scp.apply(lambda x: len(x))
         
@@ -327,7 +328,7 @@ def create_13class_model_smart(n_classes=13):
     """Create smart 13-class model with GPU optimization"""
     print(f"\n🏗️ Creating smart 13-class model...")
     
-    # GPU优化信息
+    # GPU optimization info
     if torch.cuda.is_available():
         print(f"   🚀 GPU optimization enabled")
         print_gpu_memory()
@@ -340,7 +341,7 @@ def create_13class_model_smart(n_classes=13):
         # Fast training parameters with GPU optimization
         epochs = 30
         lr = 3e-3
-        bs = 64 if torch.cuda.is_available() else 32  # 更大的批次大小用于GPU
+        bs = 64 if torch.cuda.is_available() else 32  # Larger batch size for GPU
         early_stopping = 10
         wd = 5e-4
         ps_head = 0.2
@@ -349,12 +350,12 @@ def create_13class_model_smart(n_classes=13):
         # Standard training parameters with GPU optimization
         epochs = 60
         lr = 2e-3
-        bs = 32 if torch.cuda.is_available() else 16  # 更大的批次大小用于GPU
+        bs = 32 if torch.cuda.is_available() else 16  # Larger batch size for GPU
         early_stopping = 15
         wd = 1e-3
         ps_head = 0.3
     
-    # GPU优化信息显示
+    # GPU optimization display
     if torch.cuda.is_available():
         print(f"   ⚡ GPU optimizations will be applied during training")
         print(f"   📊 Batch size optimized for GPU: {bs}")
@@ -440,7 +441,7 @@ def main():
         print(f"   👥 Workers: {GPU_OPTIMIZATION['num_workers']}")
         print_gpu_memory()
         
-        # 测试GPU性能
+        # Test GPU performance
         test_gpu_performance()
     print("=" * 60)
     
@@ -555,23 +556,23 @@ def main():
         import time
         start_time = time.time()
         
-        # 训练前GPU内存监控
+        # Pre-training GPU memory check
         if torch.cuda.is_available():
             print(f"   🚀 Starting GPU training...")
             print_gpu_memory()
             optimize_gpu_memory()
             
-            # 应用GPU优化设置
+            # Apply GPU optimization settings
             print(f"   ⚡ Applying GPU optimizations...")
-            # 设置混合精度训练
+            # Mixed precision training
             if GPU_OPTIMIZATION['use_amp']:
                 print(f"   🔧 Mixed precision training enabled")
             
-            # 设置数据加载优化
+            # Data loading optimization
             if GPU_OPTIMIZATION['use_pin_memory']:
                 print(f"   📌 Pin memory enabled for faster data transfer")
             
-            # 设置非阻塞传输
+            # Non-blocking transfer
             if GPU_OPTIMIZATION['use_non_blocking']:
                 print(f"   🔄 Non-blocking data transfer enabled")
         
@@ -580,7 +581,7 @@ def main():
         end_time = time.time()
         training_time = (end_time - start_time) / 60  # Convert to minutes
         
-        # 训练后GPU内存监控
+        # Post-training GPU memory check
         if torch.cuda.is_available():
             print(f"   📊 Training completed, GPU memory status:")
             print_gpu_memory()

@@ -200,7 +200,7 @@ try:
         with open(os.path.join(cfg['data_dir'], 'mlb.pkl'), 'rb') as f:
             mlb = pickle.load(f)
 
-        # 尝试用模型目录下的 classes.json 覆盖类别列表（若存在）
+        # Try to override classes using classes.json near the model (if present)
         classes_list = None
         if cfg.get('classes_json') and os.path.exists(cfg['classes_json']):
             try:
@@ -237,11 +237,11 @@ try:
     # Comparison output
     print(f"\n✅ Prediction completed!\n")
     print(f"=== Side-by-side (Top-{topk}) ===")
-    # 收集所有模型的top类
+    # Collect top classes from all models
     all_keys = set()
     for name, res in all_results.items():
         all_keys |= set(res.keys())
-    # 按所有模型中的最大概率排序
+    # Sort by maximum probability across models
     def max_score(k):
         return max([all_results[m].get(k, 0.0) for m in all_results])
     sorted_keys = sorted(list(all_keys), key=max_score, reverse=True)[:topk]

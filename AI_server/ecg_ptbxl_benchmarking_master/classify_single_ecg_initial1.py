@@ -8,7 +8,7 @@ from code.models.xresnet1d import xresnet1d101
 import pickle
 import torch.nn.functional as F
 
-# 设置随机种子以确保每次预测的一致性
+# Set random seed for reproducible predictions
 def set_seed(seed=42):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -17,32 +17,31 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
 
 def load_model(weights_path, n_in=12, n_out=5, device='cpu'):
-    # 1. 构造模型（5 分类）
+    # 1. Build model (5 classes)
     model = xresnet1d101(input_channels=n_in, num_classes=n_out).to(device)
 
-    # 2. 读取保存的模型权重（包含额外的优化器信息等）
+    # 2. Load saved checkpoint (may include optimizer etc.)
     state = torch.load(weights_path, map_location=device)
 
-    # 3. 提取模型的实际权重（忽略"opt" 和 "model"等不需要的键）
+    # 3. Extract actual model weights (handle "model" key)
     if 'model' in state:
-        state = state['model']  # 如果包含 "model" 字段，提取模型部分
+        state = state['model']  # If checkpoint has "model" key
 
-    # 4. 加载模型权重，并处理最后一层大小不匹配的情况
+    # 4. Load weights; allow key mismatch for last layer
     try:
-        model.load_state_dict(state, strict=False)  # 使用 strict=False 忽略不匹配的键
-        print("模型权重加载成功")
+        model.load_state_dict(state, strict=False)  # strict=False to ignore mismatched keys
+        print("Model weights loaded successfully")
     except Exception as e:
-        print(f"加载模型时发生错误: {e}")
+        print(f"An error occurred loading the model: {e}")
         return None
 
-    # 5. 切换到评估模式
+    # 5. Switch to eval mode
     model.eval()
     return model
 
 def preprocess_signal(sig, scaler=None):
     """
-    对 ECG 信号进行标准化处理。
-    使用提供的 scaler 进行标准化。
+    Standardize ECG signal using the provided scaler (or fit a new one)
     """
     if scaler is not None:
         scaled_sig = scaler.transform(sig.flatten()[:, np.newaxis]).reshape(sig.shape)
@@ -55,26 +54,26 @@ def preprocess_signal(sig, scaler=None):
 
 def predict_ecg(record_base, model, device='cpu', class_names=None, scaler=None):
     rec = wfdb.rdrecord(record_base)
-    sig = rec.p_signal.astype(np.float32).T  # 转置以适应模型输入
+    sig = rec.p_signal.astype(np.float32).T  # transpose for model input
     sig, scaler = preprocess_signal(sig, scaler)
-    x = torch.from_numpy(sig).unsqueeze(0).to(device)  # 将信号转化为 tensor，并添加 batch 维度
+    x = torch.from_numpy(sig).unsqueeze(0).to(device)  # to tensor with batch dim
 
     model.eval()
     with torch.no_grad():
         logits = model(x)  # (1, 5)
-        probs = F.softmax(logits, dim=-1)[0].cpu().numpy()  # 计算每个类的概率
-        pred = probs.argmax()  # 预测类别
+        probs = F.softmax(logits, dim=-1)[0].cpu().numpy()  # probabilities
+        pred = probs.argmax()  # predicted class
 
     print(f"\nRecord: {record_base}")
     for i, p in enumerate(probs):
         print(f"  {class_names[i]:15s} prob={p:.3f}")
 
-    print(f"→ 预测类别: {class_names[pred]} (概率 {probs[pred]:.3f})")
+    print(f"→ Predicted: {class_names[pred]} (prob {probs[pred]:.3f})")
     return probs, pred, scaler
 
 def load_data_and_scaler():
     """
-    加载数据和标准化器，用于预测时的预处理
+    Load data utilities: StandardScaler and MultiLabelBinarizer for preprocessing
     """
     # 将路径指向正确的位置
     scaler_path = os.path.join('output', 'exp0', 'data', 'standard_scaler.pkl')
@@ -82,45 +81,45 @@ def load_data_and_scaler():
     print(f'scaler_path:',scaler_path)
     print(f'mlb_path:',mlb_path)
 
-    # 1. 加载标准化器
+    # 1. Load StandardScaler
     with open(scaler_path, 'rb') as ss_file:
         scaler = pickle.load(ss_file)
 
-    # 2. 加载标签的 MultiLabelBinarizer（需要与训练时一致）
+    # 2. Load MultiLabelBinarizer (must match training)
     with open(mlb_path, 'rb') as mlb_file:
         label_binarizer = pickle.load(mlb_file)
 
     return scaler, label_binarizer
 
 if __name__ == '__main__':
-    # 设置随机种子确保可重复性
+    # Set seed for reproducibility
     set_seed(seed=42)
 
     if len(sys.argv) != 2:
-        print("用法: python classify_single_ecg.py <record_base>")
-        print("示例: python classify_single_ecg.py data/ptbxl/records100/00000/00002_lr")
+        print("Usage: python classify_single_ecg.py <record_base>")
+        print("Example: python classify_single_ecg.py data/ptbxl/records100/00000/00002_lr")
         sys.exit(1)
 
-    # 用户输入的记录前缀
+    # User-provided record base
     record_base = sys.argv[1]
 
-    # 模型权重路径（相对于项目根目录）
+    # Weights path (relative to project root)
     weights_path = os.path.join('output', 'exp0', 'models', 'fastai_xresnet1d101', 'models', 'fastai_xresnet1d101.pth')
 
-    # 加载数据和标准化器
+    # Load data and scaler
     scaler, label_binarizer = load_data_and_scaler()
 
-    # —— 请根据您训练时的设置修改 —— 
+    # Adjust according to your training setup
     NUM_CLASSES = 5
-    CLASS_NAMES = ['NORM', 'MI', 'STTC', 'CD', 'HYP']  # 诊断性五分类示例
+    CLASS_NAMES = ['NORM', 'MI', 'STTC', 'CD', 'HYP']  # example 5-class setup
 
-    # 1. 加载模型
+    # 1. Load model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = load_model(weights_path, n_in=12, n_out=NUM_CLASSES, device=device)
 
     if model is None:
-        print("模型加载失败！")
+        print("Model loading failed!")
         sys.exit(1)
 
-    # 2. 执行预测
+    # 2. Run prediction
     predict_ecg(record_base, model, device=device, class_names=CLASS_NAMES, scaler=scaler)

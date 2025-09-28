@@ -9,22 +9,22 @@ import pickle
 import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
 
-# 修复导入路径问题 - 在文件开头设置
+# Fix import path issues - set at file top
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 #1
-# 修复相对导入问题
+# Fix relative import issues
 try:
     from .classify_single_ecg_ft import load_model, preprocess_signal, set_seed
     from .classify_single_ecg128 import load_model as load_model_128, preprocess_signal as preprocess_signal_128, set_seed as set_seed_128
 except ImportError:
-    # 如果相对导入失败，尝试绝对导入
+    # If relative import fails, try absolute import
     try:
         from classify_single_ecg_ft import load_model, preprocess_signal, set_seed
         from classify_single_ecg128 import load_model as load_model_128, preprocess_signal as preprocess_signal_128, set_seed as set_seed_128
     except ImportError:
         print("Warning: Unable to import necessary modules, please ensure the files are in the correct directory")
-        # 创建默认的set_seed_128函数
+        # Fallback: create default set_seed_128 function
         def set_seed_128(seed=42):
             torch.manual_seed(seed)
             np.random.seed(seed)
@@ -33,7 +33,7 @@ except ImportError:
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
         
-        # 创建默认的load_model和preprocess_signal函数
+        # Fallback: create default load_model and preprocess_signal functions
         def load_model_128(weights_path, n_in, n_out, device='cpu'):
             print("Warning: Using default load_model_128 function")
             # 尝试直接导入xresnet1d模型
@@ -49,10 +49,10 @@ except ImportError:
                 for k,v in state.items():
                     if v.ndim==2 and v.shape[0]==n_out:
                         hidden_size = v.shape[1]
-                        print(f"🔍 hidden_size={hidden_size} (from `{k}`)")
+                        print(f"Hidden size inferred from `{k}`: {hidden_size}")
                         break
                 if hidden_size is None:
-                    print(f"❌ 无法推断 hidden_size (n_out={n_out})")
+                    print(f"Failed to infer hidden_size (n_out={n_out})")
                     return None
 
                 # 3. 重建模型
@@ -65,16 +65,16 @@ except ImportError:
                 # 4. 严格加载权重
                 try:
                     model.load_state_dict(state, strict=True)
-                    print("✅ finetuned model weights loaded successfully")
+                    print("Finetuned model weights loaded successfully")
                 except Exception as e:
-                    print("❌ Error loading weights:", e)
+                    print("Error loading weights:", e)
                     return None
 
                 model.eval()
                 return model
                 
             except ImportError as e:
-                print(f"❌ Cannot import xresnet1d101 model: {e}")
+                print(f"Cannot import xresnet1d101 model: {e}")
                 # 尝试其他导入方式
                 try:
                     # 方法1：直接添加路径
@@ -85,7 +85,7 @@ except ImportError:
                     sys.path.insert(0, code_dir)
                     
                     from models.xresnet1d import xresnet1d101
-                    print("✅ Successfully imported xresnet1d101 using alternative path")
+                    print("Successfully imported xresnet1d101 using alternative path")
                     
                     # 继续加载模型...
                     ckpt = torch.load(weights_path, map_location=device, weights_only=False)
@@ -95,10 +95,10 @@ except ImportError:
                     for k,v in state.items():
                         if v.ndim==2 and v.shape[0]==n_out:
                             hidden_size = v.shape[1]
-                            print(f"🔍 hidden_size={hidden_size} (from `{k}`)")
+                            print(f"Hidden size inferred from `{k}`: {hidden_size}")
                             break
                     if hidden_size is None:
-                        print(f"❌ 无法推断 hidden_size (n_out={n_out})")
+                        print(f"Failed to infer hidden_size (n_out={n_out})")
                         return None
 
                     model = xresnet1d101(
@@ -109,21 +109,21 @@ except ImportError:
 
                     try:
                         model.load_state_dict(state, strict=True)
-                        print("✅ finetuned model weights loaded successfully")
+                        print("Finetuned model weights loaded successfully")
                     except Exception as e:
-                        print("❌ Error loading weights:", e)
+                        print("Error loading weights:", e)
                         return None
 
                     model.eval()
                     return model
                     
                 except ImportError as e2:
-                    print(f"❌ Alternative import also failed: {e2}")
+                    print(f"Alternative import also failed: {e2}")
                     return None
         
         def preprocess_signal_128(sig, scaler=None):
             print("Warning: Using default preprocess_signal_128 function")
-            # 使用与classify_single_ecg128.py相同的预处理逻辑
+            # Use the same preprocessing logic as classify_single_ecg128.py
             flat = sig.flatten()[:, None]
             if scaler is not None:
                 scaled = scaler.transform(flat).reshape(sig.shape)
@@ -132,13 +132,13 @@ except ImportError:
                 scaled = scaler.transform(flat).reshape(sig.shape)
             return scaled, scaler
 
-# 定义老师感兴趣的疾病类别映射
+# Define disease category mapping of interest
 def get_disease_mapping():
     """
-    返回疾病映射字典，将71种疾病分类映射到老师感兴趣的10种疾病类别
+    Return mapping dict that maps 71 subclass labels to target categories of interest
     
-    返回:
-        dict: {original_disease: target_category}
+    Returns:
+        dict: {original_label: target_category}
     """
     mapping = {
         # Normal cases
@@ -186,53 +186,53 @@ def get_disease_mapping():
 
 def map_diseases_to_categories(predictions, disease_mapping):
     """
-    将原始预测结果映射到目标疾病类别
+    Map original predictions to target disease categories
     
-    参数:
-        predictions: 原始预测结果字典 {disease: probability}
-        disease_mapping: 疾病映射字典
+    Args:
+        predictions: original prediction dict {disease: probability}
+        disease_mapping: mapping dict
     
-    返回:
-        映射后的预测结果字典 {target_category: probability}
+    Returns:
+        mapped prediction dict {target_category: probability}
     """
-    # 定义目标疾病类别
+    # Define target categories
     target_categories = [
         'NORM', '1dAVB', '2dAVB', '3dAVB', 'AFIB', 'AFLT', 
         'LBBB', 'RBBB', 'STACH', 'PAC', 'PVC'
     ]
     
-    # 初始化结果字典
+    # Initialize result dict
     mapped_predictions = {category: 0.0 for category in target_categories}
     
-    # 映射疾病并累加概率
+    # Map diseases and accumulate probabilities
     for disease, prob in predictions.items():
-        # 查找映射的目标类别
+        # Find mapped target category
         target_category = None
         
-        # 直接匹配
+        # Direct match
         if disease in disease_mapping:
             target_category = disease_mapping[disease]
         else:
-            # 模糊匹配（处理可能的变体）
+            # Fuzzy match (handle possible variants)
             for key, value in disease_mapping.items():
                 if key in disease.upper() or disease.upper() in key:
                     target_category = value
                     break
         
-        # 如果找到映射，累加概率；否则归类为 'OTHER'
+        # If mapped, accumulate; otherwise ignore (teacher-focused subset)
         if target_category and target_category in mapped_predictions:
             mapped_predictions[target_category] += prob
         else:
-            # 如果没有映射，归类为 'OTHER'（这里我们暂时忽略，因为老师只关心这10种）
+            # Ignore unmapped categories
             pass
     
-    # 按概率排序并返回 top-5
+    # Sort by probability and return top-5 for display
     sorted_predictions = sorted(mapped_predictions.items(), key=lambda x: x[1], reverse=True)
     top_5_predictions = dict(sorted_predictions[:5])
     
     return top_5_predictions
 
-# 1. 配置微调模型路径（超类预测）
+# 1. Configure fine-tuned model paths (superclass prediction)
 HERE            = os.path.dirname(os.path.realpath(__file__))
 BASE_PATH_FT    = os.path.join(HERE, 'output', 'exp0_ft')
 MODELS_DIR_FT   = os.path.join(BASE_PATH_FT, 'models')
@@ -242,7 +242,7 @@ WEIGHTS_FILE_FT = os.path.join(
 )
 DATA_DIR_FT     = os.path.join(BASE_PATH_FT, 'data')  # standard_scaler.pkl & mlb.pkl
 
-# 2. 配置原始模型路径（子类预测）
+# 2. Configure original model paths (subclass prediction)
 BASE_PATH_ORIG  = os.path.join(HERE, 'output', 'exp0')
 MODELS_DIR_ORIG = os.path.join(BASE_PATH_ORIG, 'models')
 WEIGHTS_FILE_ORIG = os.path.join(
@@ -259,11 +259,12 @@ DATA_DIR_13    = os.path.join(BASE_PATH_13, 'data')  # standard_scaler.pkl & mlb
 
 def extract_ecg_from_dicom(dicom_file):
     """
-    从 DICOM 的 WaveformSequence 提取 ECG 信号，返回 shape=(samples, channels) 的 np.array
+    Extract ECG signal from DICOM WaveformSequence
+    Returns np.ndarray with shape (samples, channels)
     """
     ds = pydicom.dcmread(dicom_file, force=True)
     if not hasattr(ds, 'WaveformSequence'):
-        raise ValueError("DICOM 文件中未找到 WaveformSequence")
+        raise ValueError("WaveformSequence not found in DICOM")
     wf = ds.WaveformSequence[0]
     data = wf.WaveformData
     n_s = wf.NumberOfWaveformSamples
@@ -271,14 +272,14 @@ def extract_ecg_from_dicom(dicom_file):
     print(f"Number of Samples: {n_s}, Number of Channels: {n_c}")
     arr = np.frombuffer(data, dtype=np.int16)
     if arr.size != n_s * n_c:
-        # 截取或填充
+        # Pad or truncate to expected size
         arr = np.pad(arr, (0, n_s*n_c - arr.size))[:n_s*n_c]
     return arr.reshape((n_s, n_c))
 
 def load_scaler_and_mlb(data_dir, class_type="superclass"):
     """
-    加载标准化器和 MultiLabelBinarizer
-    class_type: "superclass" 或 "subclass"
+    Load StandardScaler and MultiLabelBinarizer
+    class_type: "superclass" | "subclass" | "13class"
     """
     sp = os.path.join(data_dir, 'standard_scaler.pkl')
     mp = os.path.join(data_dir, 'mlb.pkl')
@@ -290,36 +291,36 @@ def load_scaler_and_mlb(data_dir, class_type="superclass"):
             scaler = pickle.load(f)
         with open(mp,'rb') as f: 
             mlb = pickle.load(f)
-        print(f"🔢 Loaded {len(mlb.classes_)} classes: {mlb.classes_}")
+        print(f"Loaded {len(mlb.classes_)} classes: {mlb.classes_}")
         return scaler, mlb
     except FileNotFoundError as e:
-        print(f"❌ File not found: {e}")
+        print(f"File not found: {e}")
         raise
     except Exception as e:
-        print(f"❌ Error loading file: {e}")
+        print(f"Error loading file: {e}")
         raise
 
 def build_class_map(mlb):
     """
-    返回 {idx: label_name} 映射
+    Return mapping {index: label_name}
     """
     return {i:cls for i,cls in enumerate(mlb.classes_)}
 
 def process_and_predict(dicom_file, class_type="13class"):
     """
-    处理DICOM文件并进行ECG预测
+    Process DICOM file and run ECG prediction
     
-    参数:
-        dicom_file: DICOM文件路径
-        class_type: 预测类型，"superclass"（超类，5分类）或 "subclass"（子类，71分类），默认为"subclass"
+    Args:
+        dicom_file: path to DICOM file
+        class_type: "superclass" (5-class), "subclass" (71-class), or "13class"
     
-    返回:
-        预测结果字典 {label: probability}
+    Returns:
+        dict {label: probability}
     """
     if class_type not in ["superclass", "subclass", "13class"]:
         raise ValueError('class_type must be "superclass", "subclass" or "13class"')
     
-    print(f"🎯 Prediction type: {class_type}")
+    print(f"Prediction type: {class_type}")
     
     if class_type == "superclass":
         # Use fine-tuned model to predict 5 superclasses

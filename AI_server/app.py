@@ -50,6 +50,8 @@ async def predict(instance_id: str, request: PredictRequest):
         logging.debug(f"Attempting to fetch DICOM binary data for instance {instance_id} for new model.")
         headers = get_headers(token)
         dicom_binary_url = f"{ORTHANC_URL}/instances/{instance_id}/file"
+        logging.debug(f"Requesting URL: {dicom_binary_url}")
+        logging.debug(f"Request headers: {headers}")
 
         response = await run_in_threadpool(requests.get, dicom_binary_url, headers=headers)
         response.raise_for_status()

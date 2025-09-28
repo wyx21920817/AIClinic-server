@@ -53,13 +53,16 @@ async def predict(instance_id: str, request: PredictRequest):
 
         response = await run_in_threadpool(requests.get, dicom_binary_url, headers=headers)
         response.raise_for_status()
+        logging.debug(f"Response size={len(response.content)} bytes, status={response.status_code}")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".dcm") as tmp_file:
+            logging.debug("Starting to write DICOM to temp file...")
             tmp_file.write(response.content)
             temp_dicom_file_path = tmp_file.name
         logging.debug(f"DICOM binary data saved to temporary file: {temp_dicom_file_path}")
 
         # 2. Transform to adapt input of models (This is for the original model path)
+        logging.debug("Start waveform extraction...")
         ecg, sampling_rate, lead_names = await run_in_threadpool(extract_waveform, ds)
         logging.debug(f"ECG data extracted for original model with shape: {ecg.shape}")
         logging.debug(f"ECG data shape for original model prediction: {ecg.shape}.")

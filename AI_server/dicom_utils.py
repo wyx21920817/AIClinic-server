@@ -7,8 +7,9 @@ import json
 import logging
 import os
 from typing import Union, Optional
-
-ORTHANC_URL  = os.getenv("ORTHANC_URL", "http://54.79.181.49:8042")
+from dotenv import load_dotenv
+load_dotenv()
+ORTHANC_URL  = os.getenv("ORTHANC_URL", "")
 # ORTHANC_AUTH = ("orthanc", "orthanc") # REMOVED
 
 logging.basicConfig(level=logging.DEBUG)

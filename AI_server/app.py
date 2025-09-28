@@ -44,7 +44,7 @@ async def predict(instance_id: str, request: PredictRequest):
 
     try:
         # 1. Retrieve DICOM (Still need to retrieve to get waveform for original model)
-        ds = await run_in_threadpool(get_instance_dicom, instance_id, token)
+        #ds = await run_in_threadpool(get_instance_dicom, instance_id, token)
         logging.debug(f"DICOM data retrieve success for original model.")
 
         logging.debug(f"Attempting to fetch DICOM binary data for instance {instance_id} for new model.")

@@ -4,23 +4,17 @@ import numpy as np
 import h5py
 from tensorflow.keras.models import load_model
 
-# 模型路径
 DNN_MODEL_PATH = 'models/model.hdf5'
 
-# 全局模型缓存
 _model_dnn = None
 
 def load_models():
-    """
-    加载 DNN 
-    """
     global _model_dnn
     _model_dnn = load_model(DNN_MODEL_PATH)
     print("Model expects:", _model_dnn.input_shape)
 
 def predict_dnn(ecg_array: np.ndarray) -> dict:
     """
-    使用 DNN 模型预测 RBBB 和 LBBB
     Args:
         ecg_array: ndarray, shape (12, N)
     Returns:
@@ -39,9 +33,6 @@ def predict_dnn(ecg_array: np.ndarray) -> dict:
     }
 
 def predict_ecg(ecg_array: np.ndarray) -> dict:
-    """
-    使用 DNN 模型对 ECG 数据进行预测
-    """
     if _model_dnn is None:
         raise RuntimeError("DNN model is not loaded. Call load_models() first.")
     return predict_dnn(ecg_array)

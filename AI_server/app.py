@@ -6,7 +6,9 @@ import requests
 import tempfile
 import os
 import json
-from dicom_utils import get_instance_dicom, store_instance_dicom, ORTHANC_URL, get_headers
+import time
+# 使用修复版的dicom_utils_fixed模块
+from dicom_utils_fixed import get_instance_dicom, store_instance_dicom, ORTHANC_URL, get_headers
 from preprocess import extract_waveform
 from model_utils import load_model, predict_ecg
 from pydicom import dcmread
@@ -113,7 +115,8 @@ async def predict(instance_id: str, request: PredictRequest):
         comment += " | ResNet Top5: " + "; ".join(f"{k}:{v:.3f}" for k, v in new_model_predictions.items())
         logging.debug(f"Prepared comment string for PatientComments: {comment}")
 
-        new_instance_id = store_instance_dicom(instance_id, comment, token)
+        # 使用修复版的store_instance_dicom函数，传递DICOM数据集
+        new_instance_id = store_instance_dicom(instance_id, comment, token, ds)
 
         return {"modified_instance_id": new_instance_id, "predictions": combined_predictions}
 
@@ -140,6 +143,7 @@ class DiagnoseRequest(BaseModel):
 
 @app.post("/diagnose/{instance_id}")
 async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
+    request_start_time = time.time()
     logging.info(f"Receive a diagnostic request,Instance ID: {instance_id}")
 
     try:
@@ -148,6 +152,11 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
 
         logging.debug(f"Successfully obtained token for instance {instance_id}")
+        
+        # 检查服务器连接状态
+        connection_status = check_connection_before_request(instance_id, token)
+        if connection_status["status"] != "ok":
+            logging.warning(f"[WARNING] Server connection issue detected, but continuing with request: {connection_status['error']}")
 
         result = await predict(instance_id, PredictRequest(token=token))
 
@@ -159,6 +168,8 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
             "message": f"Successfully diagnosed ECG instance: {instance_id}"
         }
 
+        request_end_time = time.time()
+        logging.info(f"[TIMING] Total request processing time for instance {instance_id}: {request_end_time - request_start_time:.2f} seconds")
         return output
 
     except HTTPException:
@@ -166,6 +177,10 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
     except Exception as e:
         logging.error(f"Diagnostic failure,Instance ID: {instance_id}, error: {e}")
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(e)}")
+    finally:
+        # 强制垃圾回收
+        import gc
+        gc.collect()
 
 
 @app.post("/interprete/{instance_id}")

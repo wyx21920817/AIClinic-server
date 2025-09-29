@@ -8,6 +8,7 @@ import logging
 import os
 from typing import Union, Optional
 from dotenv import load_dotenv
+from http_client import http_session
 load_dotenv()
 ORTHANC_URL  = os.getenv("ORTHANC_URL", "")
 # ORTHANC_AUTH = ("orthanc", "orthanc") # REMOVED
@@ -43,7 +44,7 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
     }
     r = None
     try:
-        r = requests.get(url, headers=headers)
+        r = http_session.get(url, headers=headers, timeout=(5, 30))  # (connect timeout, read timeout)
         r.raise_for_status()
         logging.debug(f"Successfully retrieved DICOM instance: {instance_id}")
         return dcmread(BytesIO(r.content))
@@ -88,10 +89,11 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
     try:
         # Step 1: Call /modify
         logging.debug(f"Calling /modify endpoint for instance {instance_id}.")
-        modify_response = requests.post(
+        modify_response = http_session.post(
             modify_url,
             json=modify_payload,
-            headers=modify_headers
+            headers=modify_headers,
+            timeout=(5, 60)  # (connect timeout, read timeout) - longer timeout for modify operation
         )
         modify_response.raise_for_status() # Check for 4xx/5xx errors. If raised, caught by outer except.
 
@@ -106,10 +108,11 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
         upload_headers["Content-Type"] = "application/dicom" # Set Content-Type for binary upload
 
         logging.debug(f"Attempting to upload modified instance data to {upload_url}.")
-        upload_response = requests.post(
+        upload_response = http_session.post(
             upload_url,
             headers=upload_headers,
-            data=modify_response.content # Send the binary content from the modify response
+            data=modify_response.content, # Send the binary content from the modify response
+            timeout=(5, 60)  # (connect timeout, read timeout) - longer timeout for upload operation
         )
         upload_response.raise_for_status() # Check for 4xx/5xx errors on upload. If raised, caught by outer except.
 

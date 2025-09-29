@@ -28,7 +28,32 @@ from model_utils import load_models
 load_models()
 
 import logging
+import concurrent.futures
+import asyncio
+from functools import partial
+
 logging.basicConfig(level=logging.DEBUG)
+
+# Configure a custom thread pool executor with optimized settings
+# This will be used instead of the default Starlette threadpool
+XAI_THREAD_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4,  # Limit concurrent XAI tasks to prevent overloading
+    thread_name_prefix="xai_worker"
+)
+
+async def run_in_custom_threadpool(func):
+    """Run a function in our custom thread pool instead of the default Starlette threadpool.
+    
+    This prevents the default threadpool from being blocked by long-running tasks.
+    
+    Args:
+        func: A function to run in the threadpool (can be a partial function with args)
+        
+    Returns:
+        The result of the function
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(XAI_THREAD_POOL, func)
 
 class PredictRequest(BaseModel):
     token: str
@@ -148,16 +173,10 @@ async def interprete(
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
         abnormalities = disease
 
-        # ⚠️ interprete 保留 run_in_threadpool
-        from starlette.concurrency import run_in_threadpool
-        xai_out = await run_in_threadpool(
-            run_xai_tasks,
-            abnormalities,
-            instance_id,
-            token,
-            True,
-            True,
-        )
+        # Use our custom thread pool instead of the default Starlette threadpool
+        # This prevents blocking the default threadpool which is used for other operations
+        xai_task = partial(run_xai_tasks, abnormalities, instance_id, token, True, True)
+        xai_out = await run_in_custom_threadpool(xai_task)
 
         return {
             "instance_id": instance_id,

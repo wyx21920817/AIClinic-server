@@ -106,7 +106,7 @@ def generate_normal_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, out
     hr_status = "Normal" if 60 <= avg_hr <= 100 else ("Low" if avg_hr < 60 else "High")
     hr_section = {
         "section_title": f"1. Heart Rate Assessment: {hr_status} (Average {avg_hr:.1f} bpm)",
-        "content": f"Your average heart rate is within the normal range. In the [RR Interval Distribution chart], the red dashed line representing your average RR interval ({rr_mean:.3f}s) falls squarely within the green shaded background, which indicates the 'normal heart rate range (60–100 bpm)'."
+        "content": f"The average heart rate is within the normal range. In the [RR Interval Distribution chart], the red dashed line representing the average RR interval ({rr_mean:.3f}s) falls squarely within the green shaded background, which indicates the 'normal heart rate range (60–100 bpm)'."
     }
     detailed_report_sections.append(hr_section)
     
@@ -114,7 +114,7 @@ def generate_normal_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, out
     rhythm_status = "Highly Regular" if rr_cv and rr_cv < 0.08 else "Irregular"
     rhythm_section = {
         "section_title": f"2. Rhythm Assessment: {rhythm_status}",
-        "content": f"Your heart rhythm is {'exceptionally consistent' if rr_cv and rr_cv < 0.08 else 'showing some variation'}. This is visually confirmed in the [ECG Overview chart]: the green boxes marking the 'continuous RR intervals' are of {'nearly identical width' if rr_cv and rr_cv < 0.08 else 'varying widths'}, demonstrating {'a very stable' if rr_cv and rr_cv < 0.08 else 'variable'} time between each heartbeat. This {'high regularity' if rr_cv and rr_cv < 0.08 else 'rhythm variation'} is also confirmed by the coefficient of variation (rr_cv = {rr_cv:.6f})." if rr_cv else "Rhythm assessment requires more data points for accurate evaluation."
+        "content": f"The heart rhythm is {'exceptionally consistent' if rr_cv and rr_cv < 0.08 else 'showing some variation'}. This is visually confirmed in the [ECG Overview chart]: the green boxes marking the 'continuous RR intervals' are of {'nearly identical width' if rr_cv and rr_cv < 0.08 else 'varying widths'}, demonstrating {'a very stable' if rr_cv and rr_cv < 0.08 else 'variable'} time between each heartbeat. This {'high regularity' if rr_cv and rr_cv < 0.08 else 'rhythm variation'} is also confirmed by the coefficient of variation (rr_cv = {rr_cv:.6f})." if rr_cv else "Rhythm assessment requires more data points for accurate evaluation."
     }
     detailed_report_sections.append(rhythm_section)
     

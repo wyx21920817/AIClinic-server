@@ -2,7 +2,7 @@
 # explanation_st.py
 import os, json, numpy as np, matplotlib.pyplot as plt, neurokit2 as nk
 from ..ecg_utils import plot_ecg_with_grid
-from ..clinical_reports import generate_report_sinus_tachy
+# Removed dependency on generate_report_sinus_tachy - using structured reports instead
 
 def generate_st_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
     if ecg_signal is None: return None
@@ -15,6 +15,10 @@ def generate_st_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
     avg_hr = 60.0 / np.mean(rr) if rr.size > 0 else 0
     tachy_flags = (rr < 0.6) if rr.size else np.array([])
     tachy_ratio = float(np.mean(tachy_flags)) if rr.size else 0.0
+    
+    # Calculate instantaneous heart rate and peak HR for enhanced validation
+    instantaneous_hr = 60.0 / rr if rr.size > 0 else np.array([])
+    max_instantaneous_hr = float(np.max(instantaneous_hr)) if len(instantaneous_hr) > 0 else 0
 
     # 2) Plot: top-ECG, middle-HR timeline, bottom-RR histogram
     t = np.linspace(0, len(ecg_cleaned) / sampling_rate, len(ecg_cleaned), endpoint=False)
@@ -22,20 +26,48 @@ def generate_st_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
     plot_ecg_with_grid(t, ecg_cleaned, f'{ecg_title} ({lead_name}) - Avg HR ≈ {avg_hr:.0f} bpm', axes[0], sampling_rate)
     if len(r_idx):
         axes[0].scatter(t[r_idx], ecg_cleaned[r_idx], c='dodgerblue', marker='o', s=30, label='R-peaks', zorder=5)
-        # Highlight first 3-5 RR intervals and values
+        # Highlight first 3-5 RR intervals with diagnostic color coding
         for i in range(min(len(r_idx) - 1, 5)):
             start, end = r_idx[i], r_idx[i+1]
-            axes[0].axvspan(t[start], t[end], color='lightgreen', alpha=0.3, ymin=0.45, ymax=0.55)
+            rr_val = rr[i] if i < len(rr) else 0
+            
+            # Diagnostic color coding based on RR interval
+            if rr_val < 0.6:  # Tachycardia (< 0.6s = HR > 100 bpm)
+                color = 'lightcoral'  # Red for tachycardia
+                text_color = 'darkred'
+                text_weight = 'bold'
+            elif rr_val > 1.0:  # Bradycardia (> 1.0s = HR < 60 bpm)
+                color = 'lightblue'  # Blue for bradycardia
+                text_color = 'darkblue'
+                text_weight = 'bold'
+            else:  # Normal (0.6-1.0s = HR 60-100 bpm)
+                color = 'lightgreen'  # Green for normal
+                text_color = 'darkgreen'
+                text_weight = 'normal'
+            
+            axes[0].axvspan(t[start], t[end], color=color, alpha=0.4, ymin=0.45, ymax=0.55)
             if i < 3 and rr.size:
-                axes[0].text((t[start] + t[end]) / 2, np.median(ecg_cleaned), f'RR {rr[i]:.2f}s', ha='center', fontsize=9, color='k', bbox=dict(fc='w', alpha=0.7, pad=1))
-    # Legend (only when there are annotated objects)
-    _h, _l = axes[0].get_legend_handles_labels()
-    if _l:
-        axes[0].legend(loc='upper right')
-    # Upper right status badge
-    status = "Tachycardia" if (avg_hr > 100 or tachy_ratio > 0.5) else "No tachy"
-    status_color = 'crimson' if status == "Tachycardia" else 'black'
-    axes[0].text(0.99, 0.03, f"{status}\nHR {avg_hr:.0f} bpm\nTachy beats {tachy_ratio*100:.0f}%", transform=axes[0].transAxes,
+                # Enhanced text annotation with better contrast and highlighting
+                axes[0].text((t[start] + t[end]) / 2, np.median(ecg_cleaned), f'RR {rr[i]:.2f}s', 
+                           ha='center', fontsize=10, color=text_color, weight=text_weight,
+                           bbox=dict(fc='white', alpha=0.9, ec=text_color, lw=1, pad=2))
+    # Add diagnostic color coding legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='lightgreen', alpha=0.4, label='Normal RR (0.6-1.0s) - 60-100 bpm'),
+        Patch(facecolor='lightblue', alpha=0.4, label='Bradycardia RR (>1.0s) - <60 bpm'),
+        Patch(facecolor='lightcoral', alpha=0.4, label='Tachycardia RR (<0.6s) - >100 bpm')
+    ]
+    axes[0].legend(handles=legend_elements, loc='upper right', fontsize=9)
+    # Status badge - unified clear statement
+    if tachy_ratio > 0.0:
+        status = f"Tachycardia: Detected ({tachy_ratio*100:.0f}% of beats)"
+        status_color = 'crimson'
+    else:
+        status = f"Tachycardia: Not Detected (0% of beats)"
+        status_color = 'black'
+    
+    axes[0].text(0.99, 0.03, f"{status}\nHR {avg_hr:.0f} bpm", transform=axes[0].transAxes,
                  ha='right', va='bottom', fontsize=10, color=status_color,
                  bbox=dict(fc='white', alpha=0.9, ec='none', pad=6))
 
@@ -45,9 +77,9 @@ def generate_st_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
         hr_series = 60.0 / rr
         axes[1].plot(rr_mid_t, hr_series, '-o', color='teal', ms=4, lw=1.5, label='Instant HR')
         axes[1].axhline(100, color='crimson', ls='--', lw=2, label='100 bpm threshold')
-        # Color tachycardia zone
+        # Color tachycardia zone - matching ECG overview colors
         ymax = max(120.0, float(np.max(hr_series)) * 1.1)
-        axes[1].axhspan(100, ymax, color='lightpink', alpha=0.25)
+        axes[1].axhspan(100, ymax, color='lightcoral', alpha=0.25)
         axes[1].set_ylim(50, ymax)
         axes[1].set_ylabel('HR (bpm)'); axes[1].legend(loc='upper right')
         axes[1].grid(axis='y', alpha=0.3)
@@ -57,28 +89,127 @@ def generate_st_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
         axes[2].hist(rr, bins='auto', ec='k', alpha=0.7, color='teal')
         mean_rr = np.mean(rr)
         axes[2].axvline(mean_rr, c='r', ls='--', lw=2, label=f'Mean RR {mean_rr:.3f}s (HR {60/mean_rr:.1f})')
-        axes[2].axvspan(0, 0.6, color='lightpink', alpha=0.3, label='Tachy zone (RR < 0.6s / HR > 100)')
-        axes[2].axvspan(0.6, 1.0, color='green', alpha=0.1, label='Normal band (0.6–1.0 s)')
+        axes[2].axvspan(0, 0.6, color='lightcoral', alpha=0.3, label='Tachy zone (RR < 0.6s / HR > 100)')
+        axes[2].axvspan(0.6, 1.0, color='lightgreen', alpha=0.3, label='Normal band (0.6–1.0 s)')
         axes[2].set_title('RR Interval Distribution'); axes[2].legend(loc='upper right')
         axes[2].grid(axis='y', alpha=0.3)
     plt.tight_layout(); plt.savefig(os.path.join(output_dir, "sinus_tachycardia_analysis.png"), dpi=160); plt.close(fig)
 
-    report_text = generate_report_sinus_tachy(ecg_title, lead_name, avg_hr)
+    # Generate clinical summary text
+    report_text = f"Sinus Tachycardia analysis for {ecg_title} ({lead_name}): Average HR = {avg_hr:.1f} bpm > 100 bpm threshold. RR intervals typically < 0.6s for sinus rhythms."
+    
+    # Determine tachycardia status based on enhanced validation criteria (consistent with validator)
+    # Enhanced validator logic: 
+    # - Sustained: avg_hr > 100 AND tachy_ratio >= 0.6
+    # - Significant episodes: max_hr > 120 OR tachy_ratio >= 0.15
+    # - Borderline: avg_hr > 100 OR tachy_ratio >= 0.1
+    is_sustained_tachycardia = bool(avg_hr > 100 and tachy_ratio >= 0.6)
+    is_significant_tachycardia = bool(max_instantaneous_hr > 120 or tachy_ratio >= 0.15)
+    is_tachycardia_present = is_sustained_tachycardia or is_significant_tachycardia
+    
+    # Enhanced structured report sections
+    detailed_report_sections = []
+    
+    # Section 1: Heart Rate Assessment with Enhanced Classification
+    if is_sustained_tachycardia:
+        hr_status = "Sustained Sinus Tachycardia"
+        hr_description = "sustained tachycardia"
+        hr_explanation = f"Sustained elevated heart rate with average {avg_hr:.0f} bpm and {tachy_ratio*100:.0f}% tachycardic beats."
+    elif is_significant_tachycardia:
+        if max_instantaneous_hr > 120:
+            hr_status = "Sinus Rhythm with Tachycardic Episodes"
+            hr_description = "sinus rhythm with significant tachycardic episodes"
+            hr_explanation = f"Peak instantaneous heart rate reached {max_instantaneous_hr:.0f} bpm with {tachy_ratio*100:.0f}% of beats showing tachycardic intervals."
+        else:
+            hr_status = "Sinus Rhythm with Tachycardic Episodes"
+            hr_description = "sinus rhythm with moderate tachycardic episodes"
+            hr_explanation = f"Moderate proportion ({tachy_ratio*100:.0f}%) of beats showed tachycardic intervals, indicating significant episodes."
+    else:
+        # Borderline or normal cases
+        if avg_hr > 100 or tachy_ratio >= 0.1:
+            hr_status = "Borderline Tachycardia"
+            hr_description = "borderline tachycardia with some elevated rates"
+            hr_explanation = f"Some evidence of elevated heart rate with average {avg_hr:.0f} bpm and {tachy_ratio*100:.0f}% tachycardic beats, but not meeting full diagnostic criteria."
+        else:
+            hr_status = "Normal Heart Rate"
+            hr_description = "normal heart rate"
+            hr_explanation = "Heart rate remains within normal physiological range throughout the recording."
+    
+    hr_section = {
+        "section_title": f"1. Heart Rate Assessment: {hr_status} ({avg_hr:.0f} bpm)",
+        "content": f"Heart rate analysis shows {hr_description} with an average of {avg_hr:.0f} beats per minute. The [Heart Rate Timeline] displays instantaneous heart rate over time, with the 100 bpm threshold clearly marked. {hr_explanation}"
+    }
+    detailed_report_sections.append(hr_section)
+    
+    # Section 2: Rhythm Analysis with Enhanced Classification
+    if is_sustained_tachycardia:
+        rhythm_status = "Sustained Fast Sinus Rhythm"
+        rhythm_description = "consistent but significantly accelerated"
+        rhythm_explanation = f"sustained tachycardic rates"
+    elif is_significant_tachycardia:
+        rhythm_status = "Sinus Rhythm with Tachycardic Episodes"
+        rhythm_description = "sinus rhythm with intermittent acceleration"
+        rhythm_explanation = f"significant tachycardic episodes"
+    else:
+        # Borderline or normal cases
+        if avg_hr > 100 or tachy_ratio >= 0.1:
+            rhythm_status = "Borderline Accelerated Rhythm"
+            rhythm_description = "sinus rhythm with occasional acceleration"
+            rhythm_explanation = f"some intervals falling into the tachycardic zone"
+        else:
+            rhythm_status = "Normal Sinus Rhythm"
+            rhythm_description = "normal"
+            rhythm_explanation = "normal rates"
+    
+    rhythm_section = {
+        "section_title": f"2. Rhythm Analysis: {rhythm_status}",
+        "content": f"RR interval analysis demonstrates {rhythm_description}. The [RR Interval Distribution] shows the pattern of beat-to-beat intervals, with {tachy_ratio*100:.0f}% of intervals falling into the tachycardic zone. The [ECG Overview] displays regular P-QRS-T complexes {'at an elevated rate' if is_tachycardia_present else 'at normal rate'}."
+    }
+    detailed_report_sections.append(rhythm_section)
+
     print(report_text)
+    
+    # Enhanced summary generation with granular diagnosis
+    if is_sustained_tachycardia:
+        rhythm_type = "sustained sinus tachycardia"
+        clinical_note = f"Sustained sinus tachycardia confirmed with average heart rate {avg_hr:.0f} bpm and {tachy_ratio*100:.0f}% tachycardic beats."
+        title_type = "Sustained Sinus Tachycardia"
+    elif is_significant_tachycardia:
+        if max_instantaneous_hr > 120:
+            rhythm_type = "sinus rhythm with tachycardic episodes"
+            clinical_note = f"Sinus rhythm with significant tachycardic episodes detected. Peak instantaneous heart rate reached {max_instantaneous_hr:.0f} bpm with {tachy_ratio*100:.0f}% of beats showing tachycardic intervals."
+        else:
+            rhythm_type = "sinus rhythm with tachycardic episodes"
+            clinical_note = f"Sinus rhythm with moderate tachycardic episodes detected. {tachy_ratio*100:.0f}% of beats showed tachycardic intervals, indicating significant episodes despite normal average heart rate."
+        title_type = "Sinus Rhythm with Tachycardic Episodes"
+    else:
+        # Borderline or normal cases
+        if avg_hr > 100 or tachy_ratio >= 0.1:
+            rhythm_type = "borderline tachycardia"
+            clinical_note = f"Borderline tachycardia with some evidence of elevated heart rate (average {avg_hr:.0f} bpm, {tachy_ratio*100:.0f}% tachycardic beats) but not meeting full diagnostic criteria."
+            title_type = "Borderline Tachycardia"
+        else:
+            rhythm_type = "normal sinus rhythm"
+            clinical_note = "Heart rate remains within normal physiological limits."
+            title_type = "Normal Sinus Rhythm"
+    
     summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(avg_hr > 100 or (rr.size and float(np.mean(rr)) < 0.6)),
-        'abnormality_count': 1 if (avg_hr > 100) else 0,
+        'report_text': f"Heart rate analysis shows {rhythm_type} with average rate of {avg_hr:.0f} bpm. {clinical_note}",
+        'is_abnormality_present': is_tachycardia_present,
+        'abnormality_count': 1 if is_tachycardia_present else 0,
     }
     statistics = {
         'average_heart_rate_bpm': float(avg_hr),
         'mean_rr_interval_s': float(np.mean(rr)) if rr.size > 0 else None,
+        'tachy_ratio': tachy_ratio,
+        'max_instantaneous_hr': max_instantaneous_hr,
     }
+    
     return {
-        'title': ecg_title,
+        'title': f'ECG Analysis Report: {title_type}',
         'lead_name': lead_name,
-        'report_text': report_text,
         'summary': summary,
+        'report_text': detailed_report_sections,
         'statistics': statistics,
         'image_paths': {'sinus_tachycardia_analysis.png': os.path.join(output_dir, 'sinus_tachycardia_analysis.png')},
     }

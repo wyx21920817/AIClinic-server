@@ -23,6 +23,15 @@ app = FastAPI()
 # mount static files
 app.mount("/static", StaticFiles(directory="XAI/static"), name="static")
 
+# Add middleware to ensure connections are properly released
+@app.middleware("http")
+async def close_http_connections(request, call_next):
+    response = await call_next(request)
+    # Force garbage collection to help release connections
+    import gc
+    gc.collect()
+    return response
+
 # load models when initialize
 from model_utils import load_models
 load_models()

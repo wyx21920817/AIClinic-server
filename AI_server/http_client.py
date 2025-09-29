@@ -10,8 +10,8 @@ import logging
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 def create_http_session(
-    pool_connections=10,
-    pool_maxsize=20,
+    pool_connections=20,
+    pool_maxsize=50,
     max_retries=3,
     backoff_factor=0.3,
     status_forcelist=(500, 502, 504),
@@ -57,3 +57,6 @@ def create_http_session(
 
 # Create a global session that can be imported and used throughout the application
 http_session = create_http_session()
+
+# Set default timeouts to prevent connections from being held too long
+http_session.default_timeout = (5, 60)  # (connect timeout, read timeout)

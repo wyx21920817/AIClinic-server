@@ -93,7 +93,7 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
             modify_url,
             json=modify_payload,
             headers=modify_headers,
-            timeout=(5, 600)  # (connect timeout, read timeout) - longer timeout for modify operation
+            timeout=(5, 120)  # (connect timeout, read timeout) - reduced timeout to prevent blocking
         )
         modify_response.raise_for_status() # Check for 4xx/5xx errors. If raised, caught by outer except.
 
@@ -112,7 +112,7 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
             upload_url,
             headers=upload_headers,
             data=modify_response.content, # Send the binary content from the modify response
-            timeout=(5, 60)  # (connect timeout, read timeout) - longer timeout for upload operation
+            timeout=(5, 30)  # (connect timeout, read timeout) - reduced timeout for upload operation
         )
         upload_response.raise_for_status() # Check for 4xx/5xx errors on upload. If raised, caught by outer except.
 
@@ -151,5 +151,12 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
         logging.error(f"An unexpected error occurred during modify+upload process: {e}")
         new_instance_id = None
 
+    # Explicitly close the response objects to ensure connections are released back to the pool
+    if modify_response is not None and hasattr(modify_response, 'close'):
+        try:
+            modify_response.close()
+        except Exception as e:
+            logging.warning(f"Error closing modify response: {e}")
+    
     # Return the new_instance_id (which will be the actual ID or None)
     return new_instance_id

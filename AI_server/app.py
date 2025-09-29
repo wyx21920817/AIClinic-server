@@ -7,8 +7,7 @@ import tempfile
 import os
 import json
 import time
-# 使用修复版的dicom_utils_fixed模块
-from dicom_utils import get_instance_dicom, store_instance_dicom, ORTHANC_URL, get_headers
+from dicom_utils import get_instance_dicom, store_instance_dicom
 from preprocess import extract_waveform
 from model_utils import load_model, predict_ecg
 from pydicom import dcmread
@@ -154,9 +153,7 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
         logging.debug(f"Successfully obtained token for instance {instance_id}")
         
         # 检查服务器连接状态
-        connection_status = check_connection_before_request(instance_id, token)
-        if connection_status["status"] != "ok":
-            logging.warning(f"[WARNING] Server connection issue detected, but continuing with request: {connection_status['error']}")
+       
 
         result = await predict(instance_id, PredictRequest(token=token))
 

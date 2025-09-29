@@ -64,6 +64,10 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
     """
     logging.debug(f"Attempting modify+upload strategy for instance {instance_id}.")
     modify_url = f"{ORTHANC_SERVER_URL}/instances/{instance_id}/modify"
+    
+    # 为每个请求创建新的会话，避免连接池资源耗尽问题
+    from requests import Session
+    session = Session()
 
     # Headers for the modify request (Content-Type: application/json)
     modify_headers = get_headers(token)
@@ -89,11 +93,11 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
     try:
         # Step 1: Call /modify
         logging.debug(f"Calling /modify endpoint for instance {instance_id}.")
-        modify_response = http_session.post(
+        modify_response = session.post(
             modify_url,
             json=modify_payload,
             headers=modify_headers,
-            timeout=(5, 120)  # (connect timeout, read timeout) - reduced timeout to prevent blocking
+            timeout=(5, 60)  # (connect timeout, read timeout) - further reduced timeout
         )
         modify_response.raise_for_status() # Check for 4xx/5xx errors. If raised, caught by outer except.
 
@@ -108,11 +112,11 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
         upload_headers["Content-Type"] = "application/dicom" # Set Content-Type for binary upload
 
         logging.debug(f"Attempting to upload modified instance data to {upload_url}.")
-        upload_response = http_session.post(
+        upload_response = session.post(
             upload_url,
             headers=upload_headers,
             data=modify_response.content, # Send the binary content from the modify response
-            timeout=(5, 30)  # (connect timeout, read timeout) - reduced timeout for upload operation
+            timeout=(5, 30)  # (connect timeout, read timeout) - timeout for upload operation
         )
         upload_response.raise_for_status() # Check for 4xx/5xx errors on upload. If raised, caught by outer except.
 
@@ -157,6 +161,13 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
             modify_response.close()
         except Exception as e:
             logging.warning(f"Error closing modify response: {e}")
+    
+    # 显式关闭会话，确保所有资源被释放
+    try:
+        session.close()
+        logging.debug(f"Session for instance {instance_id} closed successfully.")
+    except Exception as e:
+        logging.warning(f"Error closing session for instance {instance_id}: {e}")
     
     # Return the new_instance_id (which will be the actual ID or None)
     return new_instance_id

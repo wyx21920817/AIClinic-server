@@ -25,7 +25,7 @@ def get_headers(token: str):
 
 def get_instance_dicom(instance_id: str, token: str) -> Dataset:
     """
-    拉取 DICOM 并返回 pydicom.Dataset, 使用 token 进行认证.
+    Retrieve DICOM and return pydicom.Dataset, using token for authentication.
     Args:
         instance_id: Orthanc instance ID.
         token: The temporary access token.
@@ -38,7 +38,7 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
     logging.debug(f"[REQUEST] Attempting to retrieve DICOM instance: {instance_id} from {ORTHANC_URL} using token at {start_time:.2f}")
     url = f"{ORTHANC_URL}/instances/{instance_id}/file"
     
-    # 为每个请求创建新的会话，避免连接池资源耗尽问题
+    # Create a new session for each request to avoid connection pool resource exhaustion
     session = requests.Session()
     logging.debug(f"[SESSION] Created new session for get_instance_dicom {instance_id} with id {id(session)}")
 
@@ -47,13 +47,13 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
     }
     r = None
     try:
-        r = session.get(url, headers=headers, timeout=(5, 15))  # 连接超时5秒，读取超时15秒
+        r = session.get(url, headers=headers, timeout=(5, 15))  # Connection timeout 5s, read timeout 15s
         r.raise_for_status()
         end_time = time.time()
         logging.debug(f"[TIMING] Retrieved DICOM instance: {instance_id} in {end_time - start_time:.2f} seconds")
         result = dcmread(BytesIO(r.content))
         
-        # 显式关闭会话和响应
+        # Explicitly close session and response
         try:
             r.close()
             session.close()
@@ -66,7 +66,7 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
         logging.error(f"[ERROR] Failed to retrieve DICOM instance {instance_id}: {e}")
         if hasattr(r, 'text'):
             logging.error(f"[ERROR] Orthanc response text: {r.text}")
-        # 确保即使在异常情况下也关闭会话
+        # Ensure session is closed even in case of exception
         try:
             if r is not None and hasattr(r, 'close'):
                 r.close()
@@ -79,74 +79,74 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
 
 def store_instance_dicom(instance_id: str, comment: str, token: str, ds: Dataset = None) -> Optional[str]:
     """
-    修改DICOM数据集并上传为新的实例，返回新的实例ID。
-    原始的DICOM实例保持不变，这个函数创建一个新的实例。
-    如果提供了ds参数，则直接使用该数据集；否则，会先下载DICOM数据。
+    Modify DICOM dataset and upload as a new instance, returning the new instance ID.
+    The original DICOM instance remains unchanged, this function creates a new instance.
+    If the ds parameter is provided, it uses that dataset directly; otherwise, it will first download the DICOM data.
     
     Args:
-        instance_id: 原始Orthanc实例ID
-        comment: 要添加到PatientComments标签的注释
-        token: 认证令牌
-        ds: 可选，已经加载的DICOM数据集
+        instance_id: Original Orthanc instance ID
+        comment: Comment to add to the PatientComments tag
+        token: Authentication token
+        ds: Optional, already loaded DICOM dataset
     
     Returns:
-        Optional[str]: 新创建的实例ID，如果失败则为None
+        Optional[str]: Newly created instance ID, or None if failed
     """
-    # 记录当前进程的内存使用情况
+    # Record current process memory usage
     process = psutil.Process(os.getpid())
     mem_before = process.memory_info().rss / 1024 / 1024  # MB
     logging.debug(f"[MEMORY] Before store_instance_dicom for {instance_id}: {mem_before:.2f} MB")
     
-    # 记录开始时间
+    # Record start time
     start_time = time.time()
     logging.debug(f"[TIMING] Starting local modify+upload strategy for instance {instance_id} at {start_time:.2f}")
     
     try:
-        # 如果没有提供 DICOM 数据集，则下载
+        # If no DICOM dataset is provided, download it
         if ds is None:
             ds = get_instance_dicom(instance_id, token)
             logging.debug(f"Downloaded DICOM data for instance {instance_id}")
         
-        # 在本地修改DICOM数据集
+        # Modify DICOM dataset locally
         ds.PatientComments = comment
         logging.debug(f"Modified PatientComments field with: {comment[:50]}...")
         
-        # 修改DICOM的唯一标识符，确保生成新的实例
+        # Modify DICOM unique identifiers to ensure a new instance is created
         import uuid
-        # 修改SOPInstanceUID，这是实例级别的唯一标识符
+        # Modify SOPInstanceUID, which is the instance-level unique identifier
         if hasattr(ds, 'SOPInstanceUID'):
             original_uid = ds.SOPInstanceUID
             ds.SOPInstanceUID = f"1.2.826.0.1.3680043.{uuid.uuid4().int % 10000000000}"
             logging.debug(f"Changed SOPInstanceUID from {original_uid} to {ds.SOPInstanceUID}")
         
-        # 修改SeriesInstanceUID，这是系列级别的唯一标识符
+        # Modify SeriesInstanceUID, which is the series-level unique identifier
         if hasattr(ds, 'SeriesInstanceUID'):
             original_series_uid = ds.SeriesInstanceUID
             ds.SeriesInstanceUID = f"1.2.826.0.1.3680043.{uuid.uuid4().int % 10000000000}"
             logging.debug(f"Changed SeriesInstanceUID from {original_series_uid} to {ds.SeriesInstanceUID}")
         
-        # 添加时间戳，确保实例是唯一的
+        # Add timestamp to ensure the instance is unique
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         ds.ContentDate = datetime.now().strftime("%Y%m%d")
         ds.ContentTime = datetime.now().strftime("%H%M%S")
         logging.debug(f"Added timestamp {timestamp} to DICOM content")
         
-        # 将修改后的数据写入内存
+        # Write the modified data to memory
         buffer = BytesIO()
         dcmwrite(buffer, ds)
         buffer.seek(0)
         modified_data = buffer.getvalue()
         
-        # 上传修改后的DICOM，创建新的实例而不是覆盖原有实例
-        # 使用/instances接口上传会自动生成新的实例ID
+        # Upload the modified DICOM, creating a new instance instead of overwriting the original
+        # Using the /instances endpoint will automatically generate a new instance ID
         url = f"{ORTHANC_SERVER_URL}/instances"
         headers = get_headers(token)
         headers["Content-Type"] = "application/dicom"
         
         logging.debug(f"[NEW_INSTANCE] Creating new DICOM instance from modified data of {instance_id}")
         
-        # 创建新的会话
+        # Create a new session
         session = requests.Session()
         
         try:
@@ -154,7 +154,7 @@ def store_instance_dicom(instance_id: str, comment: str, token: str, ds: Dataset
             response = session.post(url, headers=headers, data=modified_data, timeout=(5, 15))
             response.raise_for_status()
             
-            # 解析响应获取新的实例ID
+            # Parse response to get the new instance ID
             result = response.json()
             new_instance_id = result.get("ID")
             
@@ -172,11 +172,11 @@ def store_instance_dicom(instance_id: str, comment: str, token: str, ds: Dataset
         logging.error(f"[LOCAL] Modify and upload failed: {e}")
         return None
     finally:
-        # 记录结束时的内存使用情况
+        # Record memory usage at the end
         mem_after = process.memory_info().rss / 1024 / 1024  # MB
         end_time = time.time()
         logging.debug(f"[MEMORY] After store_instance_dicom for {instance_id}: {mem_after:.2f} MB (Diff: {mem_after - mem_before:.2f} MB)")
         logging.debug(f"[TIMING] Completed local modify+upload strategy for instance {instance_id} in {end_time - start_time:.2f} seconds")
         
-        # 强制垃圾回收
+        # Force garbage collection
         gc.collect()

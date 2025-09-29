@@ -93,7 +93,7 @@ def store_instance_dicom(instance_id: str, comment: str, token: str) -> Optional
             modify_url,
             json=modify_payload,
             headers=modify_headers,
-            timeout=(5, 60)  # (connect timeout, read timeout) - longer timeout for modify operation
+            timeout=(5, 600)  # (connect timeout, read timeout) - longer timeout for modify operation
         )
         modify_response.raise_for_status() # Check for 4xx/5xx errors. If raised, caught by outer except.
 

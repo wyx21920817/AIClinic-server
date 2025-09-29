@@ -111,6 +111,27 @@ def store_instance_dicom(instance_id: str, comment: str, token: str, ds: Dataset
         ds.PatientComments = comment
         logging.debug(f"Modified PatientComments field with: {comment[:50]}...")
         
+        # 修改DICOM的唯一标识符，确保生成新的实例
+        import uuid
+        # 修改SOPInstanceUID，这是实例级别的唯一标识符
+        if hasattr(ds, 'SOPInstanceUID'):
+            original_uid = ds.SOPInstanceUID
+            ds.SOPInstanceUID = f"1.2.826.0.1.3680043.{uuid.uuid4().int % 10000000000}"
+            logging.debug(f"Changed SOPInstanceUID from {original_uid} to {ds.SOPInstanceUID}")
+        
+        # 修改SeriesInstanceUID，这是系列级别的唯一标识符
+        if hasattr(ds, 'SeriesInstanceUID'):
+            original_series_uid = ds.SeriesInstanceUID
+            ds.SeriesInstanceUID = f"1.2.826.0.1.3680043.{uuid.uuid4().int % 10000000000}"
+            logging.debug(f"Changed SeriesInstanceUID from {original_series_uid} to {ds.SeriesInstanceUID}")
+        
+        # 添加时间戳，确保实例是唯一的
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        ds.ContentDate = datetime.now().strftime("%Y%m%d")
+        ds.ContentTime = datetime.now().strftime("%H%M%S")
+        logging.debug(f"Added timestamp {timestamp} to DICOM content")
+        
         # 将修改后的数据写入内存
         buffer = BytesIO()
         dcmwrite(buffer, ds)

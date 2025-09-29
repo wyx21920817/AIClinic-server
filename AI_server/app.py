@@ -8,7 +8,7 @@ import os
 import json
 import time
 # 使用修复版的dicom_utils_fixed模块
-from dicom_utils_fixed import get_instance_dicom, store_instance_dicom, ORTHANC_URL, get_headers
+from dicom_utils import get_instance_dicom, store_instance_dicom, ORTHANC_URL, get_headers
 from preprocess import extract_waveform
 from model_utils import load_model, predict_ecg
 from pydicom import dcmread

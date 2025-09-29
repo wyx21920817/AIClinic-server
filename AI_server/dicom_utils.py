@@ -79,17 +79,18 @@ def get_instance_dicom(instance_id: str, token: str) -> Dataset:
 
 def store_instance_dicom(instance_id: str, comment: str, token: str, ds: Dataset = None) -> Optional[str]:
     """
-    修改DICOM数据集并上传，返回新的实例ID。
+    修改DICOM数据集并上传为新的实例，返回新的实例ID。
+    原始的DICOM实例保持不变，这个函数创建一个新的实例。
     如果提供了ds参数，则直接使用该数据集；否则，会先下载DICOM数据。
     
     Args:
-        instance_id: Orthanc实例ID
+        instance_id: 原始Orthanc实例ID
         comment: 要添加到PatientComments标签的注释
         token: 认证令牌
         ds: 可选，已经加载的DICOM数据集
     
     Returns:
-        Optional[str]: 新的实例ID，如果失败则为None
+        Optional[str]: 新创建的实例ID，如果失败则为None
     """
     # 记录当前进程的内存使用情况
     process = psutil.Process(os.getpid())
@@ -116,10 +117,13 @@ def store_instance_dicom(instance_id: str, comment: str, token: str, ds: Dataset
         buffer.seek(0)
         modified_data = buffer.getvalue()
         
-        # 上传修改后的DICOM
+        # 上传修改后的DICOM，创建新的实例而不是覆盖原有实例
+        # 使用/instances接口上传会自动生成新的实例ID
         url = f"{ORTHANC_SERVER_URL}/instances"
         headers = get_headers(token)
         headers["Content-Type"] = "application/dicom"
+        
+        logging.debug(f"[NEW_INSTANCE] Creating new DICOM instance from modified data of {instance_id}")
         
         # 创建新的会话
         session = requests.Session()
@@ -134,7 +138,8 @@ def store_instance_dicom(instance_id: str, comment: str, token: str, ds: Dataset
             new_instance_id = result.get("ID")
             
             if new_instance_id:
-                logging.debug(f"[LOCAL] Upload successful, new instance ID: {new_instance_id}")
+                logging.debug(f"[NEW_INSTANCE] Successfully created new DICOM instance {new_instance_id} from original instance {instance_id}")
+                logging.debug(f"[NEW_INSTANCE] Original instance {instance_id} remains unchanged")
             else:
                 logging.error(f"[LOCAL] Upload successful but no instance ID in response: {result}")
                 

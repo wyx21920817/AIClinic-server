@@ -9,7 +9,7 @@ import json
 import time
 from dicom_utils import get_instance_dicom, store_instance_dicom
 from preprocess import extract_waveform
-from model_utils import load_model, predict_ecg
+from model_utils import load_model, predict_ecg, predict_hubert_head_from_ds
 from pydicom import dcmread
 from ecg_ptbxl_benchmarking_master.extract_and_predict_ecg import process_and_predict 
 from fastapi.param_functions import Form
@@ -94,27 +94,40 @@ async def predict(instance_id: str, request: PredictRequest):
 
         preds = {}
         new_model_predictions = {}
+        hubert_head_predictions = {}
         combined_predictions = {}
 
         # 3. Predict (Original Model)
         preds = predict_ecg(ecg)
         logging.debug(f"Original model predict outcome: {preds}")
 
+        # 4. Predict (ResNet Fine-tuned Model)
         new_model_predictions = process_and_predict(temp_dicom_file_path)
         logging.debug(f"New model predict outcome: {new_model_predictions}")
 
+        # 5. Predict (HuBERT + MLP Head Model)
+        hubert_head_predictions = predict_hubert_head_from_ds(ds)
+        allowed_hubert = ["CRBBB", "CLBBB", "PVC", "AFLT"]
+        hubert_head_predictions = {k: hubert_head_predictions[k] for k in allowed_hubert if k in hubert_head_predictions}
+        logging.debug(f"HuBERT-Head model predict outcome: {hubert_head_predictions}")
+
         combined_predictions = {
             "original_dnn_model": preds,
-            "resnet_fine_tuned_model": new_model_predictions
+            "resnet_fine_tuned_model": new_model_predictions,
+            "hubert_mlp_head_model": hubert_head_predictions
         }
         logging.debug(f"Combined predictions: {combined_predictions}")
 
         # --- MODIFIED LOGIC for storing ---
         comment = "; ".join(f"{k}:{v:.3f}" for k, v in preds.items())
         comment += " | ResNet Top5: " + "; ".join(f"{k}:{v:.3f}" for k, v in new_model_predictions.items())
+        # Append HuBERT Head Top5
+        comment += " | HuBERT-Head: " + "; ".join(
+        f"{k}:{hubert_head_predictions[k]:.3f}"
+        for k in ["CRBBB","CLBBB","PVC","AFLT"] if k in hubert_head_predictions
+        )
         logging.debug(f"Prepared comment string for PatientComments: {comment}")
 
-        # 使用修复版的store_instance_dicom函数，传递DICOM数据集
         new_instance_id = store_instance_dicom(instance_id, comment, token, ds)
 
         return {"modified_instance_id": new_instance_id, "predictions": combined_predictions}
@@ -151,8 +164,6 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
             raise HTTPException(status_code=401, detail="Failed to obtain authentication token")
 
         logging.debug(f"Successfully obtained token for instance {instance_id}")
-        
-        # 检查服务器连接状态
        
 
         result = await predict(instance_id, PredictRequest(token=token))
@@ -175,7 +186,6 @@ async def diagnose_ecg(instance_id: str, req: DiagnoseRequest):
         logging.error(f"Diagnostic failure,Instance ID: {instance_id}, error: {e}")
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(e)}")
     finally:
-        # 强制垃圾回收
         import gc
         gc.collect()
 

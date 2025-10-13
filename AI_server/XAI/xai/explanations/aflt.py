@@ -332,10 +332,32 @@ def generate_aflt_multilead(leads_data, ecg_title, output_dir):
             'dominant_rate_bpm': lead_data.get('dom_rate_bpm'),
             'band_power_ratio': lead_data.get('band_power_ratio'),
         }
+    # Fallbacks across analyzed leads to improve robustness (use best available evidence)
+    if not primary_metrics.get('band_power_ratio'):
+        try:
+            best_power = None
+            for lab, res in per_lead.items():
+                pr = res.get('band_power_ratio')
+                if pr is not None:
+                    best_power = pr if best_power is None else max(best_power, pr)
+            if best_power is not None:
+                primary_metrics['band_power_ratio'] = best_power
+        except Exception:
+            pass
+    if not primary_metrics.get('dominant_rate_bpm'):
+        try:
+            best_dom = None
+            for lab, res in per_lead.items():
+                dr = res.get('dom_rate_bpm')
+                if dr is not None:
+                    best_dom = dr if best_dom is None else max(best_dom, dr)
+            if best_dom is not None:
+                primary_metrics['dominant_rate_bpm'] = best_dom
+        except Exception:
+            pass
     
     metrics = {
         'inferior_consistent': bool(inferior_consistent),
-        'inferior_mean_rate_bpm': float(inferior_mean_rate) if inferior_mean_rate else None,
         'v1_evidence_score': float(v1_evidence) if v1_evidence is not None else None,
         'estimated_av_ratio': int(estimated_av_ratio) if estimated_av_ratio else None,
         # Add primary metrics at top level for validation compatibility
@@ -351,86 +373,47 @@ def generate_aflt_multilead(leads_data, ecg_title, output_dir):
         }
     }
 
-    report_lines = [
-        f"Inferior leads consistent: {'Yes' if inferior_consistent else 'No'}",
-        f"Inferior mean atrial rate: {inferior_mean_rate:.0f} bpm" if inferior_mean_rate else "Inferior mean atrial rate: n/a",
-        f"V1 evidence score: {v1_evidence:.2f}" if v1_evidence is not None else "V1 evidence score: n/a",
-        f"Estimated AV conduction ratio: {estimated_av_ratio}:1" if estimated_av_ratio else "Estimated AV conduction ratio: n/a",
-    ]
-    report_text = "\n".join(report_lines)
-
-    # Determine if abnormality is present based on clinical criteria
-    # Use primary metrics from best available lead
-    dom_rate = primary_metrics.get('dominant_rate_bpm')
-    power_ratio = primary_metrics.get('band_power_ratio')
-    
-    is_present = (
-        dom_rate and 240 <= dom_rate <= 350 and
-        power_ratio and power_ratio > 0.6 and
-        estimated_av_ratio and estimated_av_ratio >= 2
-    )
-    
-    # Enhanced structured report sections
-    detailed_report_sections = []
-    
-    # Section 1: Atrial Rate Assessment
-    rate_status = "Flutter Pattern" if is_present else "Normal Pattern"
-    dom_rate = primary_metrics.get('dominant_rate_bpm', 0)
-    rate_section = {
-        "section_title": f"1. Atrial Rate Assessment: {rate_status} ({dom_rate:.0f} bpm)" if dom_rate else "1. Atrial Rate Assessment: Unable to determine",
-        "content": f"Multi-lead atrial rate analysis shows {'characteristic flutter waves' if is_present else 'normal atrial activity'} with dominant frequency of {dom_rate:.0f} bpm. {'This rate falls within the typical atrial flutter range (240-350 bpm)' if is_present else 'The atrial rate is outside the flutter range'}. The [Spectral Analysis] displays frequency domain characteristics across multiple leads for comprehensive assessment."
-    }
-    detailed_report_sections.append(rate_section)
-    
-    # Section 2: AV Conduction Analysis
+    # Determine AV ratio for metrics
     av_ratio = estimated_av_ratio or 1
-    conduction_section = {
-        "section_title": f"2. Atrioventricular Conduction Analysis: {av_ratio}:1 Ratio",
-        "content": f"AV conduction analysis reveals {'variable block pattern typical of atrial flutter' if av_ratio >= 2 else 'normal 1:1 conduction'}. The estimated AV conduction ratio is {av_ratio}:1, {'indicating physiological ventricular protection from rapid atrial rates' if av_ratio >= 2 else 'suggesting normal conduction'}. The [Multi-lead Overview] shows the relationship between atrial flutter waves and ventricular responses across different leads."
-    }
-    detailed_report_sections.append(conduction_section)
+    # Extract auxiliary rates for validators from best lead (if available)
+    fwave_rate = None
+    autocorr_rate = None
+    if best_lead and best_lead in per_lead:
+        fwave_rate = per_lead[best_lead].get('f_rate_bpm')
+        autocorr_rate = per_lead[best_lead].get('ac_rate_bpm')
 
-    summary = {
-        'report_text': f"Atrial flutter analysis shows {'typical flutter pattern' if is_present else 'normal atrial rhythm'} with dominant rate of {dom_rate:.0f} bpm and AV conduction ratio of {av_ratio}:1. {'Clinical criteria for atrial flutter are met' if is_present else 'No evidence of atrial flutter detected'}.",
-        'is_abnormality_present': bool(is_present),
-        'abnormality_count': 1 if is_present else 0,
-    }
-    
-    # Extract key statistics for validation
-    statistics = {
+    # Prepare metrics for unified report generator (no local report assembly)
+    metrics = {
+        'dominant_rate': primary_metrics.get('dominant_rate_bpm'),
         'dominant_rate_bpm': primary_metrics.get('dominant_rate_bpm'),
-        'band_power_ratio': primary_metrics.get('band_power_ratio'),
-        'estimated_av_ratio': int(estimated_av_ratio) if estimated_av_ratio else None,
-        'fwave_rate_bpm': None,  # Not available in multilead analysis
-        'autocorr_rate_bpm': None,  # Not available in multilead analysis
+        'atrial_rate': primary_metrics.get('dominant_rate_bpm'),
+        'av_ratio': int(av_ratio) if av_ratio else None,
+        'estimated_av_ratio': int(estimated_av_ratio) if estimated_av_ratio else (int(av_ratio) if av_ratio else None),
+        'power_ratio': primary_metrics.get('band_power_ratio', 0),
+        'band_power_ratio': primary_metrics.get('band_power_ratio', 0),
+        'fwave_rate_bpm': fwave_rate,
+        'autocorr_rate_bpm': autocorr_rate,
         'inferior_consistent': bool(inferior_consistent),
         'inferior_mean_rate_bpm': float(inferior_mean_rate) if inferior_mean_rate else None,
         'v1_evidence_score': float(v1_evidence) if v1_evidence is not None else None,
-        'per_lead': {
-            lab: {
-                'dominant_rate_bpm': per_lead[lab].get('dom_rate_bpm'),
-                'band_power_ratio': per_lead[lab].get('band_power_ratio'),
-                'autocorr_rate_bpm': per_lead[lab].get('ac_rate_bpm'),
-                'fwave_rate_bpm': per_lead[lab].get('f_rate_bpm'),
-                'rr_rate_bpm': per_lead[lab].get('rr_rate_bpm'),
-            } for lab in per_lead
-        }
     }
-
-    title_type = "Atrial Flutter" if is_present else "Normal Atrial Rhythm"
-
-    return {
-        'title': f'ECG Analysis Report: {title_type}',
-        'lead_name': 'II/III/aVF/V1',
-        'summary': summary,
-        'report_text': detailed_report_sections,
-        'statistics': statistics,
-        'image_paths': {
-            'aflt_multilead_overview.png': os.path.join(output_dir, 'aflt_multilead_overview.png'),
-            'aflt_multilead_spectrum.png': os.path.join(output_dir, 'aflt_multilead_spectrum.png'),
-            'aflt_multilead_autocorr.png': os.path.join(output_dir, 'aflt_multilead_autocorr.png')
-        }
+    
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_aflt_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = 'II/III/aVF/V1'
+    report_data['image_paths'] = {
+        'aflt_multilead_overview.png': os.path.join(output_dir, 'aflt_multilead_overview.png'),
+        'aflt_multilead_spectrum.png': os.path.join(output_dir, 'aflt_multilead_spectrum.png'),
+        'aflt_multilead_autocorr.png': os.path.join(output_dir, 'aflt_multilead_autocorr.png')
     }
+    
+    return report_data
 
 
 def generate_aflt_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
@@ -465,30 +448,7 @@ def generate_aflt_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     # Frequency analysis (FFT)
     n = len(atrial)
     if n == 0:
-        # Return a minimal report even if signal processing fails
-        report_text = f"AFLT analysis failed: no valid atrial signal for {ecg_title} ({lead_name})"
-        summary = {
-            'report_text': report_text,
-            'is_abnormality_present': False,
-            'abnormality_count': 0,
-        }
-        statistics = {
-            'dominant_freq_hz': None,
-            'dominant_rate_bpm': None,
-            'band_power_ratio': None,
-            'autocorr_rate_bpm': None,
-            'fwave_rate_bpm': None,
-            'rr_rate_bpm': None,
-            'estimated_av_ratio': None,
-        }
-        return {
-            'title': ecg_title,
-            'lead_name': lead_name,
-            'report_text': report_text,
-            'summary': summary,
-            'statistics': statistics,
-            'image_paths': []
-        }
+        return None
     freqs = np.fft.rfftfreq(n, d=1.0/sampling_rate)
     spec = np.abs(np.fft.rfft(atrial))
 
@@ -617,58 +577,20 @@ def generate_aflt_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     ax4.set_xlim(0, 1.0); ax4.set_title('Autocorrelation of atrial-emphasized signal'); ax4.set_xlabel('Lag (s)'); ax4.set_ylabel('AC'); ax4.legend()
     plt.tight_layout(); plt.savefig(os.path.join(output_dir, 'aflt_autocorr.png')); plt.close(fig4)
 
-    report_lines = [
-        f"Dominant atrial frequency (FFT): {dom_freq_hz:.2f} Hz" if dom_freq_hz else "Dominant atrial frequency (FFT): n/a",
-        f"Dominant atrial rate (FFT): {dom_rate_bpm:.0f} bpm" if dom_rate_bpm else "Dominant atrial rate (FFT): n/a",
-        f"Autocorr atrial rate: {ac_rate_bpm:.0f} bpm" if ac_rate_bpm else "Autocorr atrial rate: n/a",
-        f"Power ratio (3.5–6.0 Hz / total): {power_ratio:.2f}" if power_ratio is not None else "Power ratio: n/a",
-        f"Estimated AV conduction ratio: {int(av_ratio)}:1" if av_ratio else "Estimated AV conduction ratio: n/a",
-    ]
-    report_text = "\n".join(report_lines)
-
-    # Determine if abnormality is present based on clinical criteria
-    is_present = (
-        dom_rate_bpm and 240 <= dom_rate_bpm <= 350 and
-        power_ratio and power_ratio > 0.6 and
-        av_ratio and av_ratio >= 2
-    )
-    
-    summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(is_present),
-        'abnormality_count': 1 if is_present else 0,
+    # Prepare metrics and delegate report to ReportGenerator
+    metrics = {
+        'dominant_rate': dom_rate_bpm,
+        'atrial_rate': dom_rate_bpm,
+        'av_ratio': av_ratio or 1,
+        'power_ratio': power_ratio or 0,
     }
-    
-    statistics = {
-        'dominant_freq_hz': dom_freq_hz,
-        'dominant_rate_bpm': dom_rate_bpm,
-        'band_power_ratio': float(power_ratio) if power_ratio is not None else None,
-        'autocorr_rate_bpm': ac_rate_bpm,
-        'fwave_rate_bpm': f_rate_bpm,
-        'rr_rate_bpm': rr_rate_bpm,
-        'estimated_av_ratio': int(av_ratio) if av_ratio else None,
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    report_data = report_generator.generate_aflt_report(metrics, {})
+    report_data['lead_name'] = lead_name
+    report_data['image_paths'] = {
+        'aflt_overview.png': os.path.join(output_dir, 'aflt_overview.png'),
+        'aflt_spectrum.png': os.path.join(output_dir, 'aflt_spectrum.png'),
+        'aflt_autocorr.png': os.path.join(output_dir, 'aflt_autocorr.png'),
     }
-
-    out = {
-        'title': ecg_title,
-        'lead_name': lead_name,
-        'report_text': report_text,
-        'summary': summary,
-        'statistics': statistics,
-        'image_paths': ['aflt_overview.png', 'aflt_spectrum.png', 'aflt_autocorr.png']
-    }
-    
-    # Optional debug information
-    import os
-    if os.getenv('XAI_DEBUG_VERBOSE', '0') not in ('0', 'false', 'False'):
-        out['debug_details'] = {
-            'debug_info': debug_info,
-            'signal_info': {
-                'ecg_length': len(ecg_signal) if ecg_signal is not None else 0,
-                'atrial_length': len(atrial) if 'atrial' in locals() else 0,
-                'r_peaks_count': len(r_idx) if 'r_idx' in locals() else 0,
-                'sampling_rate': sampling_rate
-            }
-        }
-    
-    return out
+    return report_data

@@ -91,81 +91,41 @@ def generate_normal_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, out
         ax_q.grid(axis='y', alpha=0.6)
         plt.tight_layout(); qrs_hist_path = os.path.join(output_dir, "normal_qrs_histogram.png"); plt.savefig(qrs_hist_path); plt.close(fig_q)
 
-    # 5) Enhanced Report Structure
+    # 5) Prepare metrics for centralized report generation
     rr_mean = float(np.mean(rr)) if rr.size else None
     rr_std = float(np.std(rr)) if rr.size else None
     
-    # Dynamic summary text based on actual measurements
-    rhythm_assessment = "highly regular" if rr_cv and rr_cv < 0.08 else "showing some variation"
-    basic_summary = f"Baseline rhythm analysis shows: 1) Heart rate is {'normal' if 60 <= avg_hr <= 100 else ('low' if avg_hr < 60 else 'elevated')} (average {avg_hr:.1f} bpm). 2) Rhythm is {rhythm_assessment} (RR coefficient of variation = {rr_cv:.6f}). This provides the baseline context for ECG interpretation." if rr_cv else f"Baseline rhythm analysis shows heart rate of {avg_hr:.1f} bpm. Rhythm assessment requires more data points for accurate evaluation."
+    # (Report text is centralized in clinical_reports.ReportGenerator)
     
-    # Enhanced structured report sections
-    detailed_report_sections = []
-    
-    # Section 1: Heart Rate Assessment
-    hr_status = "Normal" if 60 <= avg_hr <= 100 else ("Low" if avg_hr < 60 else "High")
-    hr_section = {
-        "section_title": f"1. Heart Rate Assessment: {hr_status} (Average {avg_hr:.1f} bpm)",
-        "content": f"The average heart rate is within the normal range. In the [RR Interval Distribution chart], the red dashed line representing the average RR interval ({rr_mean:.3f}s) falls squarely within the green shaded background, which indicates the 'normal heart rate range (60–100 bpm)'."
-    }
-    detailed_report_sections.append(hr_section)
-    
-    # Section 2: Rhythm Assessment
-    rhythm_status = "Highly Regular" if rr_cv and rr_cv < 0.08 else "Irregular"
-    rhythm_section = {
-        "section_title": f"2. Rhythm Assessment: {rhythm_status}",
-        "content": f"The heart rhythm is {'exceptionally consistent' if rr_cv and rr_cv < 0.08 else 'showing some variation'}. This is visually confirmed in the [ECG Overview chart]: the green boxes marking the 'continuous RR intervals' are of {'nearly identical width' if rr_cv and rr_cv < 0.08 else 'varying widths'}, demonstrating {'a very stable' if rr_cv and rr_cv < 0.08 else 'variable'} time between each heartbeat. This {'high regularity' if rr_cv and rr_cv < 0.08 else 'rhythm variation'} is also confirmed by the coefficient of variation (rr_cv = {rr_cv:.6f})." if rr_cv else "Rhythm assessment requires more data points for accurate evaluation."
-    }
-    detailed_report_sections.append(rhythm_section)
-    
-    # Add QRS section if available
-    if qrs_durations:
-        qrs_mean = np.mean(qrs_durations)
-        qrs_normal_count = np.sum((np.array(qrs_durations) >= 0.06) & (np.array(qrs_durations) <= 0.11))
-        qrs_status = "Normal" if qrs_mean < 0.12 else "Wide"
-        qrs_section = {
-            "section_title": f"3. QRS Duration Assessment: {qrs_status} (Average {qrs_mean:.3f}s)",
-            "content": f"QRS complex duration analysis shows {'normal' if qrs_mean < 0.12 else 'prolonged'} conduction. {qrs_normal_count} out of {len(qrs_durations)} QRS complexes fall within the normal range (0.06-0.11s), as shown in the [QRS Duration Distribution chart] with green shading."
-        }
-        detailed_report_sections.append(qrs_section)
-    
-    # Summary structure
-    summary = {
-        'report_text': basic_summary,
-        'is_abnormality_present': False,
-        'abnormality_count': 0,
-    }
-    
-    # Statistics structure  
-    statistics = {
+    # Prepare metrics for unified report generator
+    metrics = {
         "average_heart_rate_bpm": float(avg_hr),
         "rr_mean_s": rr_mean,
         "rr_std_s": rr_std,
         "rr_cv": rr_cv,
     }
     if qrs_durations:
-        statistics.update({
+        metrics.update({
             "qrs_mean_s": float(np.mean(qrs_durations)),
             "qrs_in_normal_band_count": int(np.sum((np.array(qrs_durations) >= 0.06) & (np.array(qrs_durations) <= 0.11)))
         })
     
-    # Note: Validation will be handled by validate_nr() in validators.py
-    # which will override any validation structure we set here
-
-    image_paths = {
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_norm_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    report_data['image_paths'] = {
         "normal_ecg_overview.png": os.path.join(output_dir, "normal_ecg_overview.png"),
         "normal_rr_histogram.png": os.path.join(output_dir, "normal_rr_histogram.png")
     }
     if qrs_hist_path is not None:
-        image_paths["normal_qrs_histogram.png"] = os.path.join(output_dir, "normal_qrs_histogram.png")
-
-    return {
-        "title": f"ECG Analysis Report: Normal Sinus Rhythm",
-        "lead_name": lead_name,
-        "summary": summary,
-        "report_text": detailed_report_sections,
-        "statistics": statistics,
-        "image_paths": image_paths,
-    }
+        report_data['image_paths']["normal_qrs_histogram.png"] = os.path.join(output_dir, "normal_qrs_histogram.png")
+    
+    return report_data
 
 

@@ -1,6 +1,6 @@
 
 # explanation_st.py
-import os, json, numpy as np, matplotlib.pyplot as plt, neurokit2 as nk
+import os, numpy as np, matplotlib.pyplot as plt, neurokit2 as nk
 from ..ecg_utils import plot_ecg_with_grid
 # Removed dependency on generate_report_sinus_tachy - using structured reports instead
 
@@ -95,121 +95,27 @@ def generate_st_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
         axes[2].grid(axis='y', alpha=0.3)
     plt.tight_layout(); plt.savefig(os.path.join(output_dir, "sinus_tachycardia_analysis.png"), dpi=160); plt.close(fig)
 
-    # Generate clinical summary text
-    report_text = f"Sinus Tachycardia analysis for {ecg_title} ({lead_name}): Average HR = {avg_hr:.1f} bpm > 100 bpm threshold. RR intervals typically < 0.6s for sinus rhythms."
+    # (Report text centralized in clinical_reports.ReportGenerator)
     
-    # Determine tachycardia status based on enhanced validation criteria (consistent with validator)
-    # Enhanced validator logic: 
-    # - Sustained: avg_hr > 100 AND tachy_ratio >= 0.6
-    # - Significant episodes: max_hr > 120 OR tachy_ratio >= 0.15
-    # - Borderline: avg_hr > 100 OR tachy_ratio >= 0.1
-    is_sustained_tachycardia = bool(avg_hr > 100 and tachy_ratio >= 0.6)
-    is_significant_tachycardia = bool(max_instantaneous_hr > 120 or tachy_ratio >= 0.15)
-    is_tachycardia_present = is_sustained_tachycardia or is_significant_tachycardia
-    
-    # Enhanced structured report sections
-    detailed_report_sections = []
-    
-    # Section 1: Heart Rate Assessment with Enhanced Classification
-    if is_sustained_tachycardia:
-        hr_status = "Sustained Sinus Tachycardia"
-        hr_description = "sustained tachycardia"
-        hr_explanation = f"Sustained elevated heart rate with average {avg_hr:.0f} bpm and {tachy_ratio*100:.0f}% tachycardic beats."
-    elif is_significant_tachycardia:
-        if max_instantaneous_hr > 120:
-            hr_status = "Sinus Rhythm with Tachycardic Episodes"
-            hr_description = "sinus rhythm with significant tachycardic episodes"
-            hr_explanation = f"Peak instantaneous heart rate reached {max_instantaneous_hr:.0f} bpm with {tachy_ratio*100:.0f}% of beats showing tachycardic intervals."
-        else:
-            hr_status = "Sinus Rhythm with Tachycardic Episodes"
-            hr_description = "sinus rhythm with moderate tachycardic episodes"
-            hr_explanation = f"Moderate proportion ({tachy_ratio*100:.0f}%) of beats showed tachycardic intervals, indicating significant episodes."
-    else:
-        # Borderline or normal cases
-        if avg_hr > 100 or tachy_ratio >= 0.1:
-            hr_status = "Borderline Tachycardia"
-            hr_description = "borderline tachycardia with some elevated rates"
-            hr_explanation = f"Some evidence of elevated heart rate with average {avg_hr:.0f} bpm and {tachy_ratio*100:.0f}% tachycardic beats, but not meeting full diagnostic criteria."
-        else:
-            hr_status = "Normal Heart Rate"
-            hr_description = "normal heart rate"
-            hr_explanation = "Heart rate remains within normal physiological range throughout the recording."
-    
-    hr_section = {
-        "section_title": f"1. Heart Rate Assessment: {hr_status} ({avg_hr:.0f} bpm)",
-        "content": f"Heart rate analysis shows {hr_description} with an average of {avg_hr:.0f} beats per minute. The [Heart Rate Timeline] displays instantaneous heart rate over time, with the 100 bpm threshold clearly marked. {hr_explanation}"
-    }
-    detailed_report_sections.append(hr_section)
-    
-    # Section 2: Rhythm Analysis with Enhanced Classification
-    if is_sustained_tachycardia:
-        rhythm_status = "Sustained Fast Sinus Rhythm"
-        rhythm_description = "consistent but significantly accelerated"
-        rhythm_explanation = f"sustained tachycardic rates"
-    elif is_significant_tachycardia:
-        rhythm_status = "Sinus Rhythm with Tachycardic Episodes"
-        rhythm_description = "sinus rhythm with intermittent acceleration"
-        rhythm_explanation = f"significant tachycardic episodes"
-    else:
-        # Borderline or normal cases
-        if avg_hr > 100 or tachy_ratio >= 0.1:
-            rhythm_status = "Borderline Accelerated Rhythm"
-            rhythm_description = "sinus rhythm with occasional acceleration"
-            rhythm_explanation = f"some intervals falling into the tachycardic zone"
-        else:
-            rhythm_status = "Normal Sinus Rhythm"
-            rhythm_description = "normal"
-            rhythm_explanation = "normal rates"
-    
-    rhythm_section = {
-        "section_title": f"2. Rhythm Analysis: {rhythm_status}",
-        "content": f"RR interval analysis demonstrates {rhythm_description}. The [RR Interval Distribution] shows the pattern of beat-to-beat intervals, with {tachy_ratio*100:.0f}% of intervals falling into the tachycardic zone. The [ECG Overview] displays regular P-QRS-T complexes {'at an elevated rate' if is_tachycardia_present else 'at normal rate'}."
-    }
-    detailed_report_sections.append(rhythm_section)
-
-    print(report_text)
-    
-    # Enhanced summary generation with granular diagnosis
-    if is_sustained_tachycardia:
-        rhythm_type = "sustained sinus tachycardia"
-        clinical_note = f"Sustained sinus tachycardia confirmed with average heart rate {avg_hr:.0f} bpm and {tachy_ratio*100:.0f}% tachycardic beats."
-        title_type = "Sustained Sinus Tachycardia"
-    elif is_significant_tachycardia:
-        if max_instantaneous_hr > 120:
-            rhythm_type = "sinus rhythm with tachycardic episodes"
-            clinical_note = f"Sinus rhythm with significant tachycardic episodes detected. Peak instantaneous heart rate reached {max_instantaneous_hr:.0f} bpm with {tachy_ratio*100:.0f}% of beats showing tachycardic intervals."
-        else:
-            rhythm_type = "sinus rhythm with tachycardic episodes"
-            clinical_note = f"Sinus rhythm with moderate tachycardic episodes detected. {tachy_ratio*100:.0f}% of beats showed tachycardic intervals, indicating significant episodes despite normal average heart rate."
-        title_type = "Sinus Rhythm with Tachycardic Episodes"
-    else:
-        # Borderline or normal cases
-        if avg_hr > 100 or tachy_ratio >= 0.1:
-            rhythm_type = "borderline tachycardia"
-            clinical_note = f"Borderline tachycardia with some evidence of elevated heart rate (average {avg_hr:.0f} bpm, {tachy_ratio*100:.0f}% tachycardic beats) but not meeting full diagnostic criteria."
-            title_type = "Borderline Tachycardia"
-        else:
-            rhythm_type = "normal sinus rhythm"
-            clinical_note = "Heart rate remains within normal physiological limits."
-            title_type = "Normal Sinus Rhythm"
-    
-    summary = {
-        'report_text': f"Heart rate analysis shows {rhythm_type} with average rate of {avg_hr:.0f} bpm. {clinical_note}",
-        'is_abnormality_present': is_tachycardia_present,
-        'abnormality_count': 1 if is_tachycardia_present else 0,
-    }
-    statistics = {
+    # Prepare metrics for unified report generator
+    metrics = {
         'average_heart_rate_bpm': float(avg_hr),
         'mean_rr_interval_s': float(np.mean(rr)) if rr.size > 0 else None,
         'tachy_ratio': tachy_ratio,
         'max_instantaneous_hr': max_instantaneous_hr,
     }
     
-    return {
-        'title': f'ECG Analysis Report: {title_type}',
-        'lead_name': lead_name,
-        'summary': summary,
-        'report_text': detailed_report_sections,
-        'statistics': statistics,
-        'image_paths': {'sinus_tachycardia_analysis.png': os.path.join(output_dir, 'sinus_tachycardia_analysis.png')},
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_st_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    report_data['image_paths'] = {
+        'sinus_tachycardia_analysis.png': os.path.join(output_dir, "sinus_tachycardia_analysis.png")
     }
+    
+    return report_data

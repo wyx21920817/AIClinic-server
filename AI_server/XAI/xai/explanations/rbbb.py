@@ -1,7 +1,6 @@
 # explanation_rbbb.py
 
 import os
-import json
 import numpy as np
 import matplotlib.pyplot as plt
 import neurokit2 as nk
@@ -202,7 +201,7 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
     leads = {}
     try:
         if hasattr(dicom_filepath, 'WaveformSequence') and dicom_filepath.WaveformSequence:
-            # 如果传递的是DICOM数据集对象
+            # if the DICOM data set object is passed
             from ..ecg_utils import load_dicom_signals_from_dataset
             raw = load_dicom_signals_from_dataset(dicom_filepath)
             # filter and rename as needed - handle both "V1" and "Lead V1" formats
@@ -214,7 +213,7 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
                 elif k == "I" or base_lead == "I":
                     leads["I"] = raw[k]
         elif dicom_filepath or (record_name and str(record_name).lower().endswith((".dcm", ".dicom"))):
-            # 如果传递的是文件路径
+            #  if the file path is passed
             raw = load_dicom_signals(dicom_filepath or record_name)
             # filter and rename as needed - handle both "V1" and "Lead V1" formats
             for k in list(raw.keys()):
@@ -367,48 +366,38 @@ def generate_rbbb_visuals(record_name=None, dicom_filepath=None, db_dir=None, ou
 
     rsr_detected = rsr_count > 0
     wide_s_detected = deep_s_count > 0
-    meets_rbbb = qrs_pool and (qrs_mean >= 0.12) and (rsr_wide_or_borderline > 0) and (deepS_wide_or_borderline > 0)
-    meets_irbbb = qrs_pool and (0.11 <= qrs_mean < 0.12) and (rsr_wide_or_borderline > 0) and (deepS_wide_or_borderline > 0)
-    if meets_rbbb:
-        conclusion = "Meets criteria for RBBB"
-    elif meets_irbbb:
-        conclusion = "Possible incomplete RBBB (borderline QRS with matching morphology)"
-    else:
-        conclusion = "Incomplete morphology or QRS duration; manual review recommended"
+    # Narrative/sections are centralized in clinical_reports.ReportGenerator
 
-    report_text = "\n".join([
-        f"▸ Record: {record_name}",
-        f"▸ Average QRS width: {qrs_mean:.3f} s  (>0.12 s proportion: {prop_wide*100:.1f}% if available)",
-        f"▸ QRS categories: wide={category_counts['wide']}, borderline={category_counts['borderline']}, normal={category_counts['normal']}, narrow/uncertain={category_counts['narrow']}",
-        f"▸ rsR'/M pattern (V1/V2): {'Yes' if rsr_detected else 'No'}  (beats: {rsr_count}, wide/borderline beats: {rsr_wide_or_borderline})",
-        f"▸ Wide deep S (V6/I): {'Yes' if wide_s_detected else 'No'}  (beats: {deep_s_count}, wide/borderline beats: {deepS_wide_or_borderline})",
-        f"\nSimple Conclusion: {conclusion}"
-    ])
-    print(report_text)
-
-    summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(qrs_pool and (qrs_mean >= 0.12) and (rsr_wide_or_borderline > 0) and (deepS_wide_or_borderline > 0)),
-        'abnormality_count': int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0,
-    }
-    statistics = {
+    # Prepare metrics for unified report generator (keep verbose for generator needs)
+    metrics = {
         "qrs_mean_s": qrs_mean if not np.isnan(qrs_mean) else None,
+        "wide_qrs_count": int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0,
+        "total_qrs_count": len(qrs_pool) if qrs_pool else 0,
+        "rsr_detected": rsr_detected,
+        "wide_s_detected": wide_s_detected,
         "wide_qrs_proportion": prop_wide if not np.isnan(prop_wide) else None,
-        "rsr_pattern_detected": rsr_detected,
         "rsr_beats_count": rsr_count,
         "rsr_beats_wide_or_borderline": rsr_wide_or_borderline,
-        "wide_s_wave_detected": wide_s_detected,
         "deep_s_beats_count": deep_s_count,
         "deep_s_beats_wide_or_borderline": deepS_wide_or_borderline,
         "qrs_category_counts": category_counts,
     }
-    return {
-        'title': f'RBBB Screening ({record_name})',
-        'report_text': report_text,
-        'summary': summary,
-        'statistics': statistics,
-        'image_paths': {
-            'rbbb_leads_analysis.png': os.path.join(output_dir, 'rbbb_leads_analysis.png'),
-            'rbbb_qrs_histogram.png': os.path.join(output_dir, 'rbbb_qrs_histogram.png')
-        },
+    
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_rbbb_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    lead_name = "V1/V2/V6/I"
+    report_data['lead_name'] = lead_name
+    report_data['image_paths'] = {
+        'rbbb_leads_analysis.png': os.path.join(output_dir, 'rbbb_leads_analysis.png'),
+        'rbbb_qrs_histogram.png': os.path.join(output_dir, 'rbbb_qrs_histogram.png')
     }
+
+    # Let ReportGenerator centralized logic shape summary/statistics
+    
+    return report_data

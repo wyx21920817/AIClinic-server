@@ -114,44 +114,43 @@ def generate_avb3_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
         analysis_results, ecg_title, lead_name, output_dir, sampling_rate
     )
 
-    # Generate clinical report
-    report_text = generate_clinical_report(analysis_results, rr_rate, pp_rate)
-
-    # Compile metrics
+    # Compile metrics first
     metrics = compile_metrics(analysis_results, r_peaks, p_peaks, rr_rate, pp_rate)
 
     # Add warnings if P detection is weak
     if len(p_peaks) < 3:
         analysis_results['criteria_failed'].append('insufficient_p_detections')
         metrics['notes'] = 'insufficient_p_detections'
+    
+    # Gather key attributes for centralized report generator
+    confidence = analysis_results.get('confidence', 0)
+    dissociation_score = analysis_results.get('av_dissociation_score', 0)
+    diagnosis = analysis_results.get('diagnosis', 'Unknown')
 
-    # Build summary/statistics
-    summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(analysis_results.get('diagnosis','').startswith('Complete') or analysis_results.get('diagnosis','').endswith('AV Block')),
-        'abnormality_count': 1 if analysis_results.get('diagnosis','') else 0,
-    }
-    statistics = {
+    # Prepare metrics for unified report generator (pruned to essential fields)
+    metrics_data = {
+        'diagnosis': diagnosis,
+        'confidence': confidence,
+        'atrial_rate': metrics.get('pp_rate_bpm', 0),
+        'ventricular_rate': metrics.get('rr_rate_bpm', 0),
         'conduction_ratio': metrics.get('conduction_ratio'),
-        'pp_rate_bpm': metrics.get('pp_rate_bpm'),
-        'rr_rate_bpm': metrics.get('rr_rate_bpm'),
-        'pr_cv': metrics.get('pr_cv'),
-        'phase_lock_corr': metrics.get('phase_lock_corr'),
-        'pp_cv': analysis_results.get('pp_cv'),
-        'rr_cv': analysis_results.get('rr_cv'),
-        'confidence': metrics.get('confidence'),
         'dissociation_score': metrics.get('dissociation_score'),
         'complete_av_block': metrics.get('complete_av_block'),
     }
-
-    return {
-        'title': ecg_title,
-        'lead_name': lead_name,
-        'report_text': report_text,
-        'summary': summary,
-        'statistics': statistics,
-        'image_paths': image_paths
-    }
+    
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_avb3_report(metrics_data, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    # Map all generated images dynamically to full paths in output_dir
+    report_data['image_paths'] = {name: os.path.join(output_dir, name) for name in (image_paths or [])}
+    
+    return report_data
 
 
 def analyze_3davb_criteria(ecg_signal, r_peaks, p_peaks, rr_intervals, pp_intervals, 
@@ -164,12 +163,8 @@ def analyze_3davb_criteria(ecg_signal, r_peaks, p_peaks, rr_intervals, pp_interv
         'criteria_failed': [],
         'diagnosis': 'Normal',
         'confidence': 0.0,
-        'conduction_ratio': None,
-        'pr_cv': None,
         'pp_rate_bpm': float(pp_rate) if pp_rate else None,
         'rr_rate_bpm': float(rr_rate) if rr_rate else None,
-        'pp_cv': None,
-        'rr_cv': None,
     }
 
     # Pre-compute rhythm regularity

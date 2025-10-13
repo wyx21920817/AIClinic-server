@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import neurokit2 as nk
 from ..ecg_utils import plot_ecg_with_grid
-from ..clinical_reports import generate_report_1davb
+# Removed dependency on generate_report_1davb - using structured reports instead
 
 def generate_avb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
     """
@@ -69,7 +69,7 @@ def generate_avb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output
     p_onsets_raw = np.asarray(waves['ecg_p_onsets'], dtype=float)
     r_onsets_raw = np.asarray(waves['ecg_r_onsets'], dtype=float)
 
-    # 过滤掉NaN值并转换为整数索引
+    # filter out NaN values and convert to integer indices
     p_onsets = p_onsets_raw[~np.isnan(p_onsets_raw)].astype(int)
     r_onsets = r_onsets_raw[~np.isnan(r_onsets_raw)].astype(int)
     
@@ -77,26 +77,26 @@ def generate_avb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output
         print("Error: No valid P-onsets or R-onsets detected")
         return None
 
-    # 改进的PR interval配对算法
+    # improved PR interval pairing algorithm
     pr_intervals, highlight_regions, pr_quality_scores = [], [], []
     
     for p_idx in p_onsets:
-        # 寻找在P波之后的最近R波
+        # find the nearest R wave after the P wave
         valid_r_indices = [r for r in r_onsets if r > p_idx]
         
         if valid_r_indices:
-            # 选择最近的R波
+            # select the nearest R wave
             r_idx = min(valid_r_indices)
             
-            # 计算PR interval
+            # calculate PR interval
             pr_sec = (r_idx - p_idx) / sampling_rate
             
-            # 临床验证：PR interval应该在生理范围内
+            # clinical validation: PR interval should be within physiological range
             if 0.05 < pr_sec < 0.60:  # 50ms to 600ms
                 pr_intervals.append(pr_sec)
                 highlight_regions.append((p_idx, r_idx))
                 
-                # 计算质量分数（基于信号质量）
+                # calculate quality score (based on signal quality)
                 quality_score = _calculate_pr_quality_score(ecg_cleaned, p_idx, r_idx, sampling_rate)
                 pr_quality_scores.append(quality_score)
                 
@@ -129,13 +129,13 @@ def generate_avb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output
         pr_sec = (r - p) / sampling_rate
         quality = pr_quality_scores[i] if i < len(pr_quality_scores) else 0.5
         
-        # 颜色编码：绿色=正常PR，橙色=延长PR，红色=低质量
+        # color coding: green=normal PR, orange=prolonged PR, red=low quality
         if quality < 0.3:
-            color = "red"  # 低质量
+            color = "red"  # low quality
         elif pr_sec > 0.20:
-            color = "orange"  # 延长PR
+            color = "orange"  # prolonged PR
         else:
-            color = "green"  # 正常PR
+            color = "green"  # normal PR
             
         ax.axvspan(time_axis[p], time_axis[r], alpha=0.4, color=color, zorder=4)
 
@@ -180,7 +180,15 @@ def generate_avb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output
         plt.close(fig_hist)
     
     # 7. Enhanced report generation
-    report_text = generate_report_1davb(pr_intervals, used_method, ecg_title, lead_name)
+    # Generate clinical summary text  
+    if pr_intervals is not None and pr_intervals.size > 0:
+        mean_pr = np.mean(pr_intervals)
+        count_total = len(pr_intervals)
+        count_prolonged = np.sum(pr_intervals > 0.20)
+        percentage_prolonged = (count_prolonged / count_total) * 100 if count_total > 0 else 0
+        report_text = f"1st Degree AV Block analysis for {ecg_title} ({lead_name}): Mean PR={mean_pr:.3f}s, {count_prolonged} out of {count_total} ({percentage_prolonged:.1f}%) intervals > 0.20s threshold."
+    else:
+        report_text = f"1st Degree AV Block analysis for {ecg_title} ({lead_name}): Automatic delineation could not reliably compute PR intervals."
     print(report_text)
     
     # Enhanced metrics with quality information
@@ -214,31 +222,28 @@ def generate_avb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output
         (prolonged_ratio >= 0.8)                         # Majority of intervals prolonged
     )
     
-    summary = {
-        "report_text": report_text,
-        "is_abnormality_present": present,
-        "abnormality_count": int(prolonged if present else 0),
-    }
-    statistics = {
-        "total_beats": total,
-        "pr_mean_s": metrics["pr_mean_s"],
-        "pr_min_s": metrics["pr_min_s"],
-        "pr_max_s": metrics["pr_max_s"],
-        "prolonged_pr_count": prolonged,
-        "total_pr_count": total,  # Add this field for validator compatibility
+    # Prepare metrics for unified report generator
+    metrics_data = {
+        'total_beats': total,
+        'pr_mean_s': metrics['pr_mean_s'],
+        'pr_min_s': metrics['pr_min_s'],
+        'pr_max_s': metrics['pr_max_s'],
+        'prolonged_pr_count': prolonged,
+        'total_pr_count': total,  # Add this field for validator compatibility
     }
     
-    report_data = {
-        "title": ecg_title, 
-        "lead_name": lead_name, 
-        "report_text": report_text, 
-        "summary": summary,
-        "statistics": statistics,
-        "image_paths": ["avb1_pr_intervals_enhanced.png", "avb1_enhanced_analysis.png"],
-        # Include metrics directly for validation compatibility
-        "pr_mean_s": metrics["pr_mean_s"],
-        "total_pr_count": metrics["total_pr_count"],
-        "prolonged_pr_count": metrics["prolonged_pr_count"],
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_avb_report(metrics_data, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    report_data['image_paths'] = {
+        'avb1_pr_intervals_enhanced.png': os.path.join(output_dir, 'avb1_pr_intervals_enhanced.png'),
+        'avb1_enhanced_analysis.png': os.path.join(output_dir, 'avb1_enhanced_analysis.png')
     }
     
     return report_data
@@ -251,11 +256,11 @@ def _calculate_pr_quality_score(ecg_signal, p_idx, r_idx, sampling_rate):
         float: Quality score between 0 and 1 (1 = best quality)
     """
     try:
-        # 检查信号幅度
+        # check signal amplitude
         p_amplitude = abs(ecg_signal[p_idx])
         r_amplitude = abs(ecg_signal[r_idx])
         
-        # 检查信号稳定性（周围区域的标准差）
+        # check signal stability (standard deviation of surrounding area)
         window = int(0.02 * sampling_rate)  # 20ms window
         p_start = max(0, p_idx - window)
         p_end = min(len(ecg_signal), p_idx + window)
@@ -265,7 +270,7 @@ def _calculate_pr_quality_score(ecg_signal, p_idx, r_idx, sampling_rate):
         p_stability = 1.0 / (1.0 + np.std(ecg_signal[p_start:p_end]))
         r_stability = 1.0 / (1.0 + np.std(ecg_signal[r_start:r_end]))
         
-        # 综合质量分数
+        # combined quality score
         amplitude_score = min(p_amplitude, r_amplitude) / max(p_amplitude, r_amplitude)
         stability_score = (p_stability + r_stability) / 2.0
         
@@ -274,4 +279,4 @@ def _calculate_pr_quality_score(ecg_signal, p_idx, r_idx, sampling_rate):
         
     except Exception as e:
         print(f"Error calculating quality score: {e}")
-        return 0.5  # 默认中等质量
+        return 0.5  

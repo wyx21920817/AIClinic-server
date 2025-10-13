@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import neurokit2 as nk
 from scipy.signal import find_peaks
 from ..ecg_utils import plot_ecg_with_grid, load_wfdb_signals, load_dicom_signals
-from ..clinical_reports import generate_report_bbb
+# Removed dependency on generate_report_bbb - using structured reports instead
 
 def generate_lbbb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
     """Left Bundle Branch Block analysis with refined QRS estimation (notebook-aligned)."""
@@ -172,8 +172,13 @@ def generate_lbbb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
     plt.savefig(os.path.join(output_dir, 'lbbb_qrs_analysis.png'))
     plt.close(fig)
 
-    # 6) Report
-    report_text = generate_report_bbb(ecg_title, lead_name, estimation_type, qrs_durations_sec)
+    # 6) Generate clinical summary text
+    if qrs_durations_sec:
+        qrs_arr = np.array(qrs_durations_sec)
+        num_wide = np.sum(qrs_arr > 0.12)
+        report_text = f"LBBB analysis for {ecg_title} ({lead_name}): QRS duration analysis shows mean={np.mean(qrs_arr):.3f}s, with {num_wide} out of {len(qrs_arr)} QRS durations > 0.12s threshold."
+    else:
+        report_text = f"LBBB analysis for {ecg_title} ({lead_name}): No reliable QRS durations could be calculated."
     print(report_text)
     
     # Calculate statistics directly
@@ -187,24 +192,30 @@ def generate_lbbb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, outpu
         wide_qrs_count = int(np.sum(qrs_arr > 0.12))
         total_qrs_count = int(qrs_arr.size)
     
-    summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(qrs_mean and qrs_mean >= 0.12),
-        'abnormality_count': int(wide_qrs_count),
-    }
-    statistics = {
+    # (Report text centralized in ReportGenerator)
+
+    # Prepare metrics for unified report generator
+    metrics = {
         'qrs_mean_s': qrs_mean,
         'wide_qrs_count': wide_qrs_count,
         'total_qrs_count': total_qrs_count,
+        'lbbb_morphology_beat_count': wide_qrs_count,  # Move detailed count to statistics
     }
-    return {
-        'title': ecg_title,
-        'lead_name': lead_name,
-        'report_text': report_text,
-        'summary': summary,
-        'statistics': statistics,
-        'image_paths': {'lbbb_qrs_analysis.png': os.path.join(output_dir, 'lbbb_qrs_analysis.png')}
+    
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_lbbb_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    report_data['image_paths'] = {
+        'lbbb_qrs_analysis.png': os.path.join(output_dir, 'lbbb_qrs_analysis.png')
     }
+    
+    return report_data
 
 
 # ------------------------
@@ -298,11 +309,11 @@ def generate_lbbb_multilead(record_name=None, dicom_filepath=None, db_dir=None, 
     raw = {}
     try:
         if hasattr(dicom_filepath, 'WaveformSequence') and dicom_filepath.WaveformSequence:
-            # 如果传递的是DICOM数据集对象
+            # if the DICOM data set object is passed
             from ..ecg_utils import load_dicom_signals_from_dataset
             raw = load_dicom_signals_from_dataset(dicom_filepath)
         elif dicom_filepath or (record_name and str(record_name).lower().endswith((".dcm", ".dicom"))):
-            # 如果传递的是文件路径
+            # if the file path is passed
             raw = load_dicom_signals(dicom_filepath or record_name)
         else:
             raw = load_wfdb_signals(record_name, leads=need, db_dir=db_dir, allow_missing=True)
@@ -455,7 +466,7 @@ def generate_lbbb_multilead(record_name=None, dicom_filepath=None, db_dir=None, 
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, "lbbb_qrs_histogram.png"))
         plt.close(fig_hist)
-        # # 写出逐搏 CSV 供人工核对
+        # # write the per-beat CSV for manual review
         # try:
         #     import csv
         #     csv_path = os.path.join(output_dir, 'lbbb_qrs_durations.csv')
@@ -468,43 +479,21 @@ def generate_lbbb_multilead(record_name=None, dicom_filepath=None, db_dir=None, 
         # except Exception:
         #     pass
 
-    meets_lbbb = qrs_pool and (qrs_mean >= 0.12) and (broad_r_count > 0) and (deep_s_count > 0)
-    meets_ilbbb = qrs_pool and (0.11 <= qrs_mean < 0.12) and (broad_r_count > 0) and (deep_s_count > 0)
-    if meets_lbbb:
-        conclusion = "Meets criteria for LBBB"
-    elif meets_ilbbb:
-        conclusion = "Possible incomplete LBBB (borderline QRS with matching morphology)"
-    else:
-        conclusion = "Incomplete morphology or QRS duration; manual review recommended"
-
-    report_text = "\n".join([
-        f"▸ Record: {record_name}",
-        f"▸ Average QRS width: {qrs_mean:.3f} s  (>0.12 s proportion: {prop_wide*100:.1f}% if available)",
-        f"▸ QRS categories: wide={rs_counts['wide']}, borderline={rs_counts['borderline']}, normal={rs_counts['normal']}, narrow/uncertain={rs_counts['narrow']}",
-        f"▸ Deep S in V1: {'Yes' if deep_s_count>0 else 'No'}",
-        f"▸ Broad/Notched R in lateral (V6/I/aVL): {'Yes' if broad_r_count>0 else 'No'}",
-        f"\nSimple Conclusion: {conclusion}"
-    ])
-
-    summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(qrs_pool and (qrs_mean >= 0.12) and (broad_r_count > 0) and (deep_s_count > 0)),
-        'abnormality_count': int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0,
-    }
-    statistics = {
+    # Prepare metrics and delegate full report to ReportGenerator
+    total_qrs_count = int(len(qrs_pool)) if qrs_pool else 0
+    wide_qrs_count = int(np.sum(np.array(qrs_pool) > 0.12)) if qrs_pool else 0
+    metrics = {
         'qrs_mean_s': qrs_mean if not np.isnan(qrs_mean) else None,
-        'wide_qrs_proportion': prop_wide if not np.isnan(prop_wide) else None,
-        'deep_s_v1': deep_s_count > 0,
-        'broad_r_lateral': broad_r_count > 0,
-        'qrs_category_counts': rs_counts,
+        'wide_qrs_count': wide_qrs_count,
+        'total_qrs_count': total_qrs_count,
     }
-    return {
-        'title': f'LBBB Screening ({record_name})',
-        'report_text': report_text,
-        'summary': summary,
-        'statistics': statistics,
-        'image_paths': {
-            'lbbb_leads_analysis.png': os.path.join(output_dir, 'lbbb_leads_analysis.png'),
-            'lbbb_qrs_histogram.png': os.path.join(output_dir, 'lbbb_qrs_histogram.png')
-        }
+
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    report_data = report_generator.generate_lbbb_report(metrics, {})
+    report_data['lead_name'] = 'Multi-lead'
+    report_data['image_paths'] = {
+        'lbbb_leads_analysis.png': os.path.join(output_dir, 'lbbb_leads_analysis.png'),
+        'lbbb_qrs_histogram.png': os.path.join(output_dir, 'lbbb_qrs_histogram.png')
     }
+    return report_data

@@ -74,29 +74,28 @@ def generate_sb_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
 
     plt.tight_layout(); plt.savefig(os.path.join(output_dir, "sinus_bradycardia_analysis.png"), dpi=160); plt.close(fig)
 
-    report = (
-        f"\nObs for {ecg_title} ({lead_name}):\n"
-        f"- HR < 60 bpm or RR > 1.0 s considered bradycardia.\n"
-        f"- Avg HR: {avg_hr:.1f} bpm; brady beats: {brady_ratio*100:.0f}%.\n"
-        f"- HR timeline shows threshold at 60 bpm; RR histogram shades >1.0 s."
-    )
-    summary = {
-        'report_text': report,
-        'is_abnormality_present': bool(avg_hr < 60 or brady_ratio > 0.5),
-        'abnormality_count': int(np.sum(rr > 1.0)) if rr.size else 0,
-    }
-    statistics = {
+    # (Report text centralized in clinical_reports.ReportGenerator)
+    
+    # Prepare metrics for unified report generator
+    metrics = {
         "average_heart_rate_bpm": float(avg_hr),
         "mean_rr_interval_s": float(np.mean(rr)) if rr.size else None,
         "brady_ratio": brady_ratio,
     }
-    return {
-        'title': ecg_title,
-        'lead_name': lead_name,
-        'report_text': report,
-        'summary': summary,
-        'statistics': statistics,
-        'image_paths': ['sinus_bradycardia_analysis.png'],
+    
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_sb_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    report_data['image_paths'] = {
+        'sinus_bradycardia_analysis.png': os.path.join(output_dir, "sinus_bradycardia_analysis.png")
     }
+    
+    return report_data
 
 

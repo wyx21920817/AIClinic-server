@@ -131,7 +131,6 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
         r_idx = np.asarray(rpeaks['ECG_R_Peaks'], dtype=int)
         
         # Additional peak detection for missed beats (especially negative PVCs)
-        from scipy.signal import find_peaks
         # Look for prominent negative peaks that might be missed PVCs
         signal_std = np.std(ecg_cleaned)
         signal_range = np.max(ecg_cleaned) - np.min(ecg_cleaned)
@@ -852,43 +851,7 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     # axd.grid(True, alpha=0.3)
     # plt.tight_layout(); plt.savefig(os.path.join(output_dir, 'pvc_qrs_debug.png')); plt.close(figd)
 
-    # Concise report text only
-    median_rr = det_metrics.get('median_rr_s')
-    bpm = 60.0 / median_rr if median_rr else None
-    baseline_txt = (
-        f"median RR {median_rr:.2f}s ({bpm:.0f} bpm)" if bpm else
-        (f"median RR {median_rr:.2f}s" if median_rr else "median RR n/a")
-    )
-    pvc_cnt = det_metrics.get('total_pvc', 0)
-    if pvc_cnt > 0:
-        keep = [c for c in candidates if c.get('classified_as_pvc')]
-        times = ', '.join(f"{c['time_s']:.2f}s" for c in keep) if keep else ''
-        # Optional morphology note from V1 for the first PVC
-        morph_note = ''
-        if show_v1_morph and aux_v1 is not None and keep:
-            first = keep[0]
-            bi = first['beat_index']
-            ibs = r_idx[bi]
-            ibe = r_idx[bi+1] if (bi + 1) < len(r_idx) else min(len(ecg_cleaned)-1, int(first.get('event_index', r_idx[bi]) + int(0.2*sampling_rate)))
-            v1_draw = aux_v1[:len(ecg_cleaned)] if aux_v1.size >= len(ecg_cleaned) else aux_v1
-            seg_v1 = v1_draw[ibs:ibe]
-            if seg_v1.size > 3:
-                vmax = float(np.max(seg_v1)); vmin = float(np.min(seg_v1))
-                pos_dom = abs(vmax) / max(1e-6, abs(vmin))
-                neg_dom = abs(vmin) / max(1e-6, abs(vmax))
-                if pos_dom >= 1.15:
-                    morph_note = ' V1 morphology: RBBB pattern (LV origin).'
-                elif neg_dom >= 1.15:
-                    morph_note = ' V1 morphology: LBBB pattern (RV origin).'
-        report_text = f"Report: Sinus baseline with {baseline_txt}. PVC count: {pvc_cnt}. {('At ' + times) if times else ''}{morph_note}"
-    else:
-        report_text = f"Report: Sinus baseline with {baseline_txt}. PVC not detected."
-
-    metrics = {
-        **det_metrics,
-        'r_count': int(r_idx.size),
-        'pvc_indices': r_idx[pvc_indices].tolist() if pvc_indices.size else [],
-    }
+    # (Report text centralized in clinical_reports.ReportGenerator)
 
     # Concise summary/statistics for default output
     confirmed = [c for c in candidates if c.get('classified_as_pvc')]
@@ -896,38 +859,46 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     abnormality_indices = [int(c.get('beat_index')) for c in confirmed]
     heart_rate_bpm = 60.0 / det_metrics['median_rr_s'] if det_metrics.get('median_rr_s') else None
 
-    summary = {
-        'report_text': report_text,
-        'is_abnormality_present': bool(det_metrics.get('total_pvc', 0) > 0),
-        'abnormality_count': int(det_metrics.get('total_pvc', 0)),
-        'abnormality_indices': abnormality_indices,
-        'abnormality_times_s': abnormality_times,
-    }
-    statistics = {
+    pvc_count = det_metrics.get('total_pvc', 0)
+    is_pvc_present = bool(pvc_count > 0)
+    
+    # Prepare metrics for unified report generator
+    metrics = {
         'total_beats': int(r_idx.size),
+        'total_pvc': int(pvc_count),
         'median_rr_s': det_metrics.get('median_rr_s'),
         'baseline_rr_s': det_metrics.get('baseline_rr_s'),
         'heart_rate_bpm': round(heart_rate_bpm, 1) if heart_rate_bpm else None,
         'rr_cv': det_metrics.get('rr_cv'),
         'wide_qrs_fraction': det_metrics.get('wide_qrs_fraction'),
+        'abnormality_indices': abnormality_indices,
+        'abnormality_times_s': abnormality_times,
     }
-
-
-    # Recompute RR for image path conditional
-    rr = np.diff(r_idx) / sampling_rate if r_idx.size > 1 else np.array([])
-    out = {
-        'title': ecg_title,
-        'lead_name': lead_name,
-        'report_text': report_text,
-        'summary': summary,
-        'statistics': statistics,
-        'image_paths': ['pvc_overview.png', 'pvc_rr.png'] if rr.size else ['pvc_overview.png'],
+    
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_pvc_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    
+    # Prepare image paths
+    image_paths = {
+        'pvc_overview.png': os.path.join(output_dir, 'pvc_overview.png'),
+        'pvc_qrs_debug.png': os.path.join(output_dir, 'pvc_qrs_debug.png'),
     }
-
+    if r_idx.size > 1:
+        image_paths['pvc_rr.png'] = os.path.join(output_dir, 'pvc_rr.png')
+    
+    report_data['image_paths'] = image_paths
+    
     # Optional debug block via env
     dbg = os.getenv('XAI_DEBUG_VERBOSE', '0')
     if dbg not in ('0', 'false', 'False', None):
-        out['debug_details'] = {
+        report_data['debug_details'] = {
             'candidates_analysis': candidates,
             'raw_beat_metrics': {
                 'qrs_widths_s': det_metrics.get('qrs_widths_s'),
@@ -940,9 +911,7 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
             },
             'available_leads': (meta or {}).get('available_leads') if isinstance(meta, dict) else None,
         }
+    
+    return report_data
 
-    return out
-
-
-
-
+    # Legacy code removed - now using unified ReportGenerator

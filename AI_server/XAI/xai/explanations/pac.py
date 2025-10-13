@@ -292,14 +292,14 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     if suspicious_times:
         handles.append(Patch(facecolor='orange', alpha=0.18, edgecolor='orange', label='Suspicious (not classified)'))
     ax.legend(handles=handles, loc='upper right')
-    # V1 额外 XAI：提前P波/窄QRS/非代偿 提示，仅在 V1 子图中注记
+    # V1 extra XAI: early P/narrow QRS/non-compensatory hint, only annotated in V1 subplot
     if ax_v1 is not None:
         show_v1_pac = os.getenv('XAI_SHOW_V1_PAC', '1')
         v1_handles, v1_labels = ax_v1.get_legend_handles_labels()
         if show_v1_pac not in ('0', 'false', 'False', None):
-            # 准备 V1 心房信号与“正常 P 模板”
+            # prepare V1 atrial signal and "normal P template"
             v1_arr = v1_draw
-            # 生成 atrial_v1（R 后抑制 + 3-12Hz 带通）
+            # generate atrial_v1 (R post-inhibition + 3-12Hz bandpass)
             blanked_v1 = v1_arr.copy()
             t_blank = int(0.24 * sampling_rate)
             for r in r_idx:
@@ -313,7 +313,7 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
             except Exception:
                 atrial_v1 = blanked_v1
 
-            # 构建“正常 P 模板”（选择接近基线 RR 且未被判为 PAC 的心搏）
+            # build "normal P template" (select beats near baseline RR and not classified as PAC)
             rr = np.diff(r_idx) / sampling_rate if r_idx.size > 1 else np.array([])
             median_rr = det_metrics.get('median_rr_s') or (float(np.median(rr)) if rr.size else None)
             lookback = int(0.22 * sampling_rate)
@@ -336,7 +336,7 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
                     break
             p_template = np.mean(template_segs, axis=0) if template_segs else None
 
-            # 绘制每个已判定 PAC 候选在 V1 的“提前P窗口”、“V1 P索引虚线”、“窄QRS窗”以及模板对比
+            # draw each confirmed PAC candidate in V1's "early P window", "V1 P index dashed line", "narrow QRS window", and template comparison
             qrs_widths_s = det_metrics.get('qrs_widths_s') or []
             for cand in candidates:
                 if not cand.get('classified_as_pac'):
@@ -345,17 +345,17 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
                 if bi < 0 or bi >= r_idx.size:
                     continue
                 r = int(r_idx[bi])
-                # 提前 P 窗口（淡青）
+                # early P window (light cyan)
                 ps = max(0, r - lookback)
                 pe = r
                 x0 = t[ps]
                 x1 = t[pe]
                 ax_v1.axvspan(x0, x1, color='cyan', alpha=0.12)
-                # V1 P-wave 索引（虚线）
+                # V1 P-wave index (dashed line)
                 v1_pi = cand.get('v1_p_index')
                 if isinstance(v1_pi, (int, np.integer)) and 0 <= v1_pi < len(t):
                     ax_v1.axvline(t[v1_pi], color='teal', linestyle='--', linewidth=1.3, alpha=0.85)
-                # 窄 QRS 窗（浅绿）
+                # narrow QRS window (light green)
                 qrsw = None
                 if isinstance(qrs_widths_s, list) and bi < len(qrs_widths_s):
                     qrsw = qrs_widths_s[bi]
@@ -364,7 +364,7 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
                     left = max(t[0], cx - 0.5 * qrsw)
                     right = min(t[-1], cx + 0.5 * qrsw)
                     ax_v1.axvspan(left, right, color='lightgreen', alpha=0.22)
-                # 正常 P 模板对比（灰色细线）——按原始 V1 振幅与基线对齐，提升可见性
+                # normal P template comparison (gray thin line) - align with original V1 amplitude and baseline to improve visibility
                 if p_template is not None and pe > ps:
                     seg_raw = v1_arr[ps:pe]
                     if seg_raw.size == p_template.size:
@@ -375,7 +375,7 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
                         tpl = baseline + tpl_norm * scale
                         ax_v1.plot(t[ps:pe], tpl, color='dimgray', linewidth=1.3, alpha=0.9, label='Normal P template (V1)')
 
-            # 构建 V1 专属图例，不影响 II 子图
+            # build V1 exclusive legend,不影响 II 子图
             if 'Early P window (V1)' not in v1_labels:
                 v1_handles.append(Patch(facecolor='cyan', edgecolor='cyan', alpha=0.12, label='Early P window (V1)'))
             if 'V1 P index' not in v1_labels:
@@ -395,7 +395,7 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
         ax2[0].plot(rr, color='#1f77b4', marker='o', linestyle='-', linewidth=2, markersize=4)
         ax2[0].set_title('RR tachogram'); ax2[0].set_xlabel('Beat'); ax2[0].set_ylabel('RR (s)')
         ax2[0].grid(True, alpha=0.3)
-        # Mark candidate premature RR with red circles and annotate value
+        # mark candidate premature RR with red circles and annotate value
         for cand in candidates:
             bi = cand['beat_index']
             j = bi - 1
@@ -407,40 +407,7 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
         ax2[1].grid(True, alpha=0.3)
         plt.tight_layout(); plt.savefig(os.path.join(output_dir, 'pac_rr.png')); plt.close(fig2)
 
-    # Dynamic report text
-    median_rr = det_metrics.get('median_rr_s')
-    bpm = 60.0 / median_rr if median_rr else None
-    baseline_txt = (
-        f"median RR {median_rr:.2f}s ({bpm:.0f} bpm)" if bpm else
-        (f"median RR {median_rr:.2f}s" if median_rr else "median RR n/a")
-    )
-    pac_cnt = det_metrics.get('total_pac', 0)
-    if candidates:
-        # choose most premature candidate for narrative
-        top = sorted(candidates, key=lambda c: c.get('scores', {}).get('prematurity', 0), reverse=True)[0]
-        if top.get('classified_as_pac'):
-            report_text = (
-                f"Report: Sinus baseline with {baseline_txt}. A premature beat at {top['time_s']:.2f}s "
-                f"(RR {top['rr_short_s']:.2f}s, -{top['rr_short_pct']:.0f}%) was classified as PAC, "
-                f"with early P in V1, narrow QRS, non-compensatory. "
-                f"Final PAC count: {pac_cnt}."
-            )
-        else:
-            report_text = (
-                f"Report: Sinus baseline with {baseline_txt}. A significant premature beat at {top['time_s']:.2f}s "
-                f"(RR {top['rr_short_s']:.2f}s, -{top['rr_short_pct']:.0f}%) was not classified as PAC due to low "
-                f"ectopic P-wave confidence. Final PAC count: {pac_cnt}."
-            )
-    else:
-        report_text = (
-            f"Report: Sinus baseline with {baseline_txt}. No premature beats detected consistent with PAC criteria."
-        )
-
-    metrics = {
-        **det_metrics,
-        'r_count': int(r_idx.size),
-        'pac_indices': r_idx[pac_indices].tolist() if pac_indices.size else [],
-    }
+    # (Report text centralized in clinical_reports.ReportGenerator)
 
     # Build concise summary and statistics
     confirmed = [c for c in candidates if c.get('classified_as_pac')]
@@ -451,73 +418,48 @@ def generate_pac_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     pac_count = det_metrics.get('total_pac', 0)
     is_pac_present = bool(pac_count > 0)
     
-    # Fix f-string nesting
-    detection_text = f"detected {pac_count} PAC events" if is_pac_present else "did not detect any PAC events"
-    morphology_text = "Ectopic atrial beats show characteristic early P-waves, narrow QRS complexes, and non-compensatory pauses" if is_pac_present else "All beats appear to originate from normal sinus node without atrial ectopy"
-    
-    summary = {
-        'report_text': f"Premature atrial complex analysis {detection_text}. {morphology_text}.",
-        'is_abnormality_present': is_pac_present,
-        'abnormality_count': int(pac_count),
-        'abnormality_indices': abnormality_indices,
-        'abnormality_times_s': abnormality_times,
-    }
-    statistics = {
+    # Prepare metrics for unified report generator
+    metrics = {
         'total_beats': int(r_idx.size),
+        'total_pac': int(pac_count),
         'median_rr_s': det_metrics.get('median_rr_s'),
         'heart_rate_bpm': round(heart_rate_bpm, 1) if heart_rate_bpm else None,
         'rr_cv': det_metrics.get('rr_cv'),
+        'p_visibility_fraction': det_metrics.get('p_visibility_fraction', 0),
+        'noncompensatory_fraction': det_metrics.get('noncompensatory_fraction', 0),
+        'abnormality_indices': abnormality_indices,
+        'abnormality_times_s': abnormality_times,
     }
-
-
-    # Enhanced structured report sections
-    detailed_report_sections = []
     
-    # Section 1: Ectopic Beat Assessment
-    pac_count = det_metrics.get('total_pac', 0)
-    beat_status = f"Detected ({pac_count})" if pac_count > 0 else "Not Detected"
-    beat_section = {
-        "section_title": f"1. Premature Atrial Complex Assessment: {beat_status}",
-        "content": f"Analysis identified {pac_count} premature atrial complexes. {'PAC events are highlighted in the [ECG Overview] showing early P-waves and narrow QRS complexes.' if pac_count > 0 else 'No clear PAC patterns were detected based on prematurity, P-wave morphology, and non-compensatory pause criteria.'} The detection algorithm evaluates beat prematurity, ectopic P-wave presence, and QRS morphology similarity to baseline."
-    }
-    detailed_report_sections.append(beat_section)
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
     
-    # Section 2: P-wave Analysis
-    p_vis_frac = det_metrics.get('p_visibility_fraction', 0)
-    noncomp_frac = det_metrics.get('noncompensatory_fraction', 0)
-    p_section = {
-        "section_title": "2. P-wave and Conduction Analysis",
-        "content": f"P-wave analysis shows {'clear ectopic P-waves in ' + str(p_vis_frac*100) + '% of detected PACs' if pac_count > 0 else 'normal P-wave morphology throughout the recording'}. {'Non-compensatory pauses were observed in ' + str(noncomp_frac*100) + '% of PACs, consistent with atrial origin.' if pac_count > 0 else ''} The [RR Interval Analysis] demonstrates the timing characteristics typical of supraventricular ectopy."
-    }
-    detailed_report_sections.append(p_section)
-
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_pac_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    
+    # Prepare image paths
     image_paths = {
         'pac_overview.png': os.path.join(output_dir, 'pac_overview.png')
     }
     if rr.size:
         image_paths['pac_rr.png'] = os.path.join(output_dir, 'pac_rr.png')
-
-    title_type = "Premature Atrial Complexes" if pac_count > 0 else "No PAC Detected"
     
-    out = {
-        'title': f'ECG Analysis Report: {title_type}',
-        'lead_name': lead_name,
-        'summary': summary,
-        'report_text': detailed_report_sections,
-        'statistics': statistics,
-        'image_paths': image_paths,
-    }
-
+    report_data['image_paths'] = image_paths
+    
     # Optional: attach debug details when enabled via env var
     dbg = os.getenv('XAI_DEBUG_VERBOSE', '0')
     if dbg not in ('0', 'false', 'False', None):
-        out['debug_details'] = {
+        report_data['debug_details'] = {
             'candidates_analysis': candidates,
             'raw_beat_metrics': {
-                # PAC doesn t use onsets/offsets; keep candidates and r indices
+                # PAC doesn't use onsets/offsets; keep candidates and r indices
                 'r_indices': r_idx.tolist(),
             },
             'available_leads': (meta or {}).get('available_leads') if isinstance(meta, dict) else None,
         }
-
-    return out
+    
+    return report_data

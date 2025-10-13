@@ -1,7 +1,6 @@
 # explanation_af.py
 import os, json, numpy as np, matplotlib.pyplot as plt, neurokit2 as nk
 from ..ecg_utils import plot_ecg_with_grid
-from ..clinical_reports import generate_report_afib
 
 def generate_af_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_dir):
     if ecg_signal is None: return None
@@ -62,26 +61,30 @@ def generate_af_visuals(ecg_signal, sampling_rate, ecg_title, lead_name, output_
         ax_pwave.legend(loc='upper right')
     plt.tight_layout(); plt.savefig(os.path.join(output_dir, "afib_pwave_regions.png")); plt.close(fig_pwave)
 
-    report_text = generate_report_afib(ecg_title, lead_name)
-    print(report_text)
+    # Prepare metrics for unified report generator
+    cv_value = np.std(rr_intervals_sec) / np.mean(rr_intervals_sec) if rr_intervals_sec.size > 0 else 0
+    metrics = {} if rr_intervals_sec.size == 0 else {
+        "rr_min_s": float(np.min(rr_intervals_sec)), 
+        "rr_max_s": float(np.max(rr_intervals_sec)),
+        "rr_mean_s": float(np.mean(rr_intervals_sec)), 
+        "rr_std_s": float(np.std(rr_intervals_sec)),
+        "rr_interval_count": int(len(rr_intervals_sec)),
+        "rr_cv": cv_value
+    }
     
-    # summary/statistics
-    is_present = bool(rr_intervals_sec.size and (np.std(rr_intervals_sec) / np.mean(rr_intervals_sec) >= 0.12))
-    summary = {
-        "report_text": report_text,
-        "is_abnormality_present": is_present,
-        "abnormality_count": 1 if is_present else 0,
+    # Use unified report generator
+    from ..clinical_reports import ReportGenerator
+    report_generator = ReportGenerator()
+    
+    # Generate complete report using unified generator
+    report_data = report_generator.generate_af_report(metrics, {})
+    
+    # Add lead_name and image_paths to the report
+    report_data['lead_name'] = lead_name
+    report_data['image_paths'] = {
+        "afib_ecg_with_rpeaks.png": os.path.join(output_dir, "afib_ecg_with_rpeaks.png"),
+        "afib_pwave_regions.png": os.path.join(output_dir, "afib_pwave_regions.png"),
+        "afib_rr_histogram.png": os.path.join(output_dir, "afib_rr_histogram.png"),
     }
-    statistics = {} if rr_intervals_sec.size == 0 else {
-        "rr_min_s": float(np.min(rr_intervals_sec)), "rr_max_s": float(np.max(rr_intervals_sec)),
-        "rr_mean_s": float(np.mean(rr_intervals_sec)), "rr_std_s": float(np.std(rr_intervals_sec)),
-        "rr_interval_count": int(len(rr_intervals_sec))
-    }
-
-    return {"title": ecg_title, "lead_name": lead_name, "report_text": report_text,
-            "summary": summary, "statistics": statistics,
-            "image_paths": {
-                "afib_ecg_with_rpeaks.png": os.path.join(output_dir, "afib_ecg_with_rpeaks.png"),
-                "afib_rr_histogram.png": os.path.join(output_dir, "afib_rr_histogram.png"),
-                "afib_pwave_regions.png": os.path.join(output_dir, "afib_pwave_regions.png")
-            }}
+    
+    return report_data

@@ -1,0 +1,270 @@
+# XAI ECG Visualization and Explanation
+
+This module generates clinically oriented visual explanations for ECG data and writes JSON reports. It supports both WFDB and DICOM ECG, and produces a unified results index that a front-end can consume directly.
+
+## Highlights
+- Supported categories:
+  - AF (Atrial Fibrillation)
+  - AFLT (Atrial Flutter) - with enhanced frequency analysis
+  - STACH (Sinus Tachycardia)
+  - SB (Sinus Bradycardia) 
+  - LBBB / RBBB (Left/Right Bundle Branch Block) - with multi-lead morphology analysis
+  - 1dAVB / 2dAVB / 3dAVB (AV blocks)
+  - PAC (Premature Atrial Complex) - with V1 auxiliary lead support
+  - PVC (Premature Ventricular Complex) - with enhanced detection and V1 origin analysis
+  - NORM (Normal ECG)
+- Data sources:
+  - WFDB records 
+  - DICOM ECG Waveform (de-multiplexed and scaled to mV)
+- Outputs:
+  - Per-task images and `analysis_report.json`
+  - A unified `results_index.json` at the output root for easy front-end integration
+  - Standardized `summary` + `statistics` output structure across all modules
+
+## Repository layout
+```
+XAI/
+  main.py                  # Task dispatcher and unified results index
+  ecg_utils.py             # Data loading (WFDB/DICOM) and ECG grid plotting
+  clinical_reports.py      # Short clinical text summaries
+  xai/explanations/*.py    # Visualization modules per abnormality
+  tests/                   # Pytest unit and end-to-end tests
+  config.json              # Example configuration
+```
+
+## Setup (Windows PowerShell)
+```powershell
+cd "XAI"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r ..\requirements.txt
+```
+`pydicom` is required for DICOM reading; `pytest` is used for tests.
+
+## Data placement
+- Put local WFDB/DICOM files in `XAI/ECG_File/` (recommended):
+  - WFDB: paired `{record}.hea` and `{record}.dat}`
+  - DICOM: `*.dcm`
+- You can also use absolute paths or set a custom `db_dir` in the config.
+- Important: WFDB loading is strict-local. Records are read only if `{record}.hea/.dat` exist locally. No network fallback.
+
+## Configuration
+Add tasks to `config.json` (either WFDB or DICOM per task).
+
+- WFDB example (defaults to `ECG_File` if `db_dir` omitted):
+```json
+{
+  "abnormality": "LBBB",
+  "record_name": "03016_hr",
+  "lead_index": 1,
+  "db_dir": "ECG_File"
+}
+```
+
+- DICOM example (file path and lead name/index):
+```json
+{
+  "abnormality": "AF",
+  "filepath": "00001_lr.dcm",
+  "lead_index": "II"
+}
+```
+
+- Normal ECG (NR):
+```json
+{
+  "abnormality": "NR",
+  "filepath": "00001_lr.dcm",
+  "lead_index": "II"
+}
+```
+
+RBBB requires multiple leads (at least V1/V2; V6/I recommended). If missing, the module will warn and skip full assessment.
+
+## Run
+```powershell
+python main.py config.json
+```
+Outputs are written to `ecg_analysis_results/…`, plus a root `results_index.json`.
+
+## Outputs (Unified JSON schema)
+All modules now emit a standardized hierarchical structure for consistent consumption:
+- `title`: Dynamic report title based on analysis results
+- `lead_name`: ECG lead analyzed (e.g., "Lead II", "V1")
+- `summary`: Clinical summary with `report_text` (dynamic), `is_abnormality_present`, `abnormality_count`, and optional `abnormality_indices`/`abnormality_times_s`
+- `report_text`: Structured sections with `section_title` and `content` for detailed clinical explanations
+- `statistics`: Key numeric indicators organized by category (e.g., heart rate metrics, morphology measurements, timing intervals)
+- `validation`: Rule-based validation with human-readable `reasons` and `status` (pass/warn/fail)
+- `image_paths`: Dictionary format with filename-to-path mapping for rendered figures
+- Optional `debug_details` (debug mode only): comprehensive candidate analysis and raw metrics
+
+### Recent Improvements (Latest Updates)
+- **JSON Structure Standardization**: Complete migration to hierarchical format with structured `report_text` sections
+- **Dynamic Summary Generation**: All modules now generate context-aware clinical summaries instead of static templates
+- **Humanized Validation**: Replaced code-like validation reasons with complete clinical sentences
+- **Semantic Consistency**: Fixed logical alignment between `is_abnormality_present` and `abnormality_count` fields
+- **Diagnostic Color Coding**: ST/SB modules feature intuitive RR interval visualization with red/blue/green coding
+- **Enhanced Annotations**: Improved text contrast and abnormal value highlighting in ECG overviews
+- **PVC Detection**: Enhanced sensitivity and specificity with adaptive thresholds, V1 auxiliary lead support, and consecutive PVC filtering
+- **RBBB Analysis**: Improved multi-lead morphology analysis with rsR'/deep S pattern detection
+- **Validation System**: Comprehensive rule-based validators for all abnormality types
+
+Example (Enhanced PVC Output):
+```json
+{
+  "title": "ECG Analysis Report: Premature Ventricular Complex",
+  "lead_name": "Lead II",
+  "summary": {
+    "report_text": "Premature ventricular complex analysis detected 3 PVC events. Ectopic ventricular beats show characteristic wide QRS morphology and compensatory pauses.",
+    "is_abnormality_present": true,
+    "abnormality_count": 3,
+    "abnormality_indices": [1,3,8],
+    "abnormality_times_s": [1.73,3.78,8.42]
+  },
+  "report_text": [
+    {
+      "section_title": "1. PVC Detection Analysis",
+      "content": "The analysis identified 3 premature ventricular complexes with characteristic wide QRS morphology and compensatory pauses. The [PVC Overview] chart shows these ectopic beats highlighted in red against the normal sinus rhythm baseline."
+    },
+    {
+      "section_title": "2. Morphological Assessment",
+      "content": "PVC morphology analysis reveals wide QRS complexes (>0.12s) with abnormal depolarization patterns. The compensatory pause following each PVC confirms the ventricular origin of these ectopic beats."
+    }
+  ],
+  "statistics": {
+    "total_beats": 11,
+    "median_rr_s": 0.68,
+    "baseline_rr_s": 0.68,
+    "heart_rate_bpm": 88.2,
+    "rr_cv": 0.355,
+    "wide_qrs_fraction": 0.27,
+    "pvc_detection_confidence": 0.85
+  },
+  "image_paths": {
+    "pvc_overview.png": "/path/to/pvc_overview.png",
+    "pvc_rr.png": "/path/to/pvc_rr.png"
+  },
+  "validation": {
+    "status": "pass",
+    "reasons": [
+      "A clinically significant number of PVC events were detected (count: 3)",
+      "PVC morphology shows characteristic wide QRS complexes with compensatory pauses",
+      "Detection confidence is high (0.85) based on multiple criteria"
+    ],
+    "metrics_used": {
+      "pvc_count": 3,
+      "wide_qrs_fraction": 0.27,
+      "detection_confidence": 0.85
+    }
+  }
+}
+```
+
+## Concise vs Debug modes
+- **Concise (default)**: Images and JSON contain only conclusions and key statistics. Confirmed abnormalities are highlighted; suspicious unconfirmed regions use unified legend without overlapping text.
+- **Debug**: Enable detailed output via environment variable.
+  - Windows PowerShell:
+    - Enable: `$env:XAI_DEBUG_VERBOSE = "1"`
+    - Disable: `$env:XAI_DEBUG_VERBOSE = "0"` (default)
+  - Debug mode includes in `report.debug_details`: candidate beat analysis, raw per-beat statistics (e.g., PVC `qrs_onsets/offsets`), and debug images when enabled.
+
+### Debug Information for PVC
+When debug mode is enabled, PVC reports include:
+- `candidates_analysis`: Detailed scoring for each beat (prematurity, morphology, compensatory pause, etc.)
+- `raw_beat_metrics`: QRS widths, onsets, offsets, and R-peak indices
+- `available_leads`: List of available ECG leads for auxiliary analysis
+- Filtering reasons for rejected candidates
+
+## Validators
+- **Unified Structure**: Validators now prioritize reading from `summary/statistics` fields; backward compatible with legacy `metrics` structure.
+- **Common Rules**:
+  - **AF**: Based on RR variability (rr_cv ≥ 0.12)
+  - **PAC/PVC**: Uses `summary.abnormality_count` with candidate analysis for consistency
+  - **AVB/LBBB/RBBB**: Reads corresponding statistics (`pr_mean_s`, `qrs_mean_s`, morphology patterns)
+  - **AFLT**: New validator based on frequency analysis (240-350 bpm range, power concentration, AV ratio)
+- **Validation Outputs**: Standardized format with `status` (pass/warn/fail), `reasons`, and `metrics_used`
+
+## Visualization Enhancements (Latest Updates)
+
+### Diagnostic Color Coding
+- **ST/SB Modules**: Implemented intuitive RR interval visualization
+  - **Normal RR (0.6-1.0s)**: Green (`lightgreen`) - represents 60-100 bpm
+  - **Bradycardia RR (>1.0s)**: Blue (`lightblue`) - represents <60 bpm  
+  - **Tachycardia RR (<0.6s)**: Red (`lightcoral`) - represents >100 bpm
+- **Visual Consistency**: ECG overview colors match histogram and timeline colors
+- **Clinical Efficiency**: Eliminates need for mental RR-to-HR conversion
+
+### Enhanced Annotations
+- **Improved Contrast**: White semi-transparent background with colored borders
+- **Abnormal Highlighting**: Bold text for abnormal RR intervals
+- **Better Readability**: Increased font size (10pt) and enhanced padding
+- **Chart References**: Structured reports include specific chart references for clinical context
+
+### Visualization Summary
+- **AF**: R-peaks, RR histogram, P-wave inference regions (yellow)
+- **AFLT**: FFT/Autocorr analysis, multi-lead Flutter windows (2:1/3:1/≥4:1 conduction ratios)
+- **ST**: Top ECG + HR timeline + RR histogram with **diagnostic color coding** for tachycardia region
+- **SB**: Top ECG + HR timeline + RR histogram with **diagnostic color coding** for bradycardia region
+- **LBBB**: Refined QRS spans with legend; histogram with threshold bands
+- **RBBB**: Multi-lead plots with rsR'/deep S pattern detection; QRS histogram with morphology analysis
+- **1dAVB**: PR interval shading and histogram with 0.20 s threshold
+- **PAC**: Orange for suspicious unconfirmed segments, red for confirmed PAC; RR plot highlights premature beats with V1 auxiliary analysis
+- **PVC**: Orange for suspicious unconfirmed segments, red for confirmed PVC; RR plot annotates premature beats with V1 origin analysis (LBBB/RBBB patterns indicate RV/LV origin)
+
+## Technical Improvements (Recent Updates)
+
+### JSON Output Format Standardization
+- **Hierarchical Structure**: Complete migration from flat `metrics` to structured `summary`+`statistics`+`validation`
+- **Dynamic Content Generation**: All modules generate context-aware summaries instead of static templates
+- **Structured Report Sections**: Converted plain text reports to organized sections with `section_title` and `content`
+- **Semantic Consistency**: Fixed logical alignment between presence flags and count fields
+- **Humanized Validation**: Replaced technical phrases with complete clinical sentences
+
+### Validation System Enhancements
+- **NORM Module**: Provides baseline rhythm context rather than pass/fail diagnosis
+- **AVB Modules**: Complete clinical sentences for all validation conditions
+- **Enhanced Reasoning**: Detailed explanations for dropped beats, dissociation scores, and pattern classifications
+- **Consistency Checks**: Automated validation of logical field relationships
+
+### PVC Detection Algorithm Enhancements
+- **Adaptive Compensatory Pause Detection**: 
+  - Primary thresholds: `long_threshold = 1.15 * median_rr`, `sum_threshold = 1.7 * median_rr`
+  - Alternative detection for mild cases: `mild_long ≥ 1.05 * median_rr` with `relative_short ≤ 0.95 * median_rr`
+- **Multi-tier Classification Rules**:
+  - Core PVC: Premature + (wide QRS OR high morphology abnormality ≥0.75)
+  - Classic PVC: Premature + compensatory + morphology ≥0.5 + supporting evidence
+  - Mild PVC: Premature + compensatory + morphology ≥0.15 + (negative dominance ≥1.5 OR overall ≥0.12)
+- **Consecutive PVC Filtering**: Removes false positives from closely spaced (<0.4s) abnormal beats without compensatory pause
+- **V1 Auxiliary Lead Integration**: Provides PVC origin analysis (RV vs LV) and additional morphological evidence
+
+### RBBB Analysis Improvements
+- **Multi-lead Morphology Analysis**: Enhanced rsR'/M pattern detection in V1/V2 and deep S wave detection in V6/I
+- **Standardized Output Structure**: Unified `summary`+`statistics` format with comprehensive QRS categorization
+- **Improved Validation**: Rule-based validation with morphological pattern requirements
+
+### System-wide Standardization
+- **Unified Output Schema**: All modules now use consistent `summary`+`statistics`+`validation` structure
+- **Legacy Compatibility**: Validators automatically handle both new and old data formats
+- **Enhanced Debug Mode**: Comprehensive candidate analysis and filtering explanations
+- **Validator Expansion**: New AFLT validator with frequency-based criteria
+- **Image Path Format**: Standardized dictionary format for `image_paths` instead of arrays
+- **Clinical Context**: All reports include chart references and clinical explanations
+
+## Testing
+```powershell
+pytest -q
+```
+End-to-end tests write outputs under a temp directory.
+
+## Troubleshooting
+- WFDB not found: verify paired files in `ECG_File/` or `db_dir`
+- RBBB missing leads: record must contain V1/V2; V6/I is recommended
+- DICOM missing waveform: waveform sequence not present
+- Legends hidden: delete old images and re-run (legends use white semi-opaque background)
+
+## Extending & integrating
+- Orthanc: add a `load_orthanc_ecg` loader in `ecg_utils.py` to fetch waveform and reuse the pipeline
+- REST API: wrap with FastAPI to expose `/results` and serve `ecg_analysis_results/`
+
+## License
+Academic project learning.

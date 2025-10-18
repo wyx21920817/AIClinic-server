@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-MIT-BIH Long-Term ECG Database 数据处理脚本
-将LTDB数据转换为PTB-XL风格的训练样本
+MIT-BIH Long-Term ECG Database Data Processing Script
+Converts LTDB data to PTB-XL-style training samples
 
-主要功能：
-1. 重采样：128 Hz -> 100 Hz
-2. 窗口切分：10秒窗口，可选步长
-3. 标准化：Z-score标准化
-4. 数据集划分：按记录编号划分，避免数据泄露
+Main Functions:
+1. Resampling: 128 Hz -> 100 Hz
+2. Windowing: 10-second windows with optional step size
+3. Normalization: Z-score normalization
+4. Dataset Partitioning: Partitioning by record number to prevent data leakage
 """
 
 """
@@ -38,7 +38,7 @@ def windows_from_record(rec_base: str,
                        tgt_fs: int = 100, 
                        step_sec: int = 10,
                        apply_filter: bool = True,
-                       max_leads: int = 2) -> np.ndarray:  # 保持2导联
+                       max_leads: int = 2) -> np.ndarray:  # Keep 2 leads
     """
     Generates windowed data from a single LTDB record
 
@@ -56,49 +56,49 @@ def windows_from_record(rec_base: str,
     """
 
     """
-    从单个LTDB记录生成窗口化数据
+    Generate windowed data from a single LTDB record
     
     Args:
-        rec_base: 记录路径（不含扩展名）
-        win_sec: 窗口长度（秒）
-        src_fs: 源采样频率
-        tgt_fs: 目标采样频率
-        step_sec: 步长（秒）
-        apply_filter: 是否应用带通滤波器
-        max_leads: 最大导联数量（只保留前N个导联）
+        rec_base: Record path (without extension)
+        win_sec: Window length (seconds)
+        src_fs: Source sampling frequency
+        tgt_fs: Target sampling frequency
+        step_sec: Step size (seconds)
+        apply_filter: Whether to apply bandpass filter
+        max_leads: Maximum number of leads (only keep first N leads)
     
     Returns:
-        windows: (num_windows, leads, samples) 的数组
+        windows: Array of (num_windows, leads, samples)
     """
     print(f"📁 Processing record: {rec_base}")
     
-    # 读取WFDB记录
+    # Read WFDB record
     try:
         rec = wfdb.rdrecord(rec_base)
     except Exception as e:
         print(f"❌ Failed to read record: {e}")
         return np.array([])
     
-    # 获取信号数据 (samples, leads)
-    sig = rec.p_signal.T.astype(np.float32)  # 转置为 (leads, samples)
+    # Get signal data (samples, leads)
+    sig = rec.p_signal.T.astype(np.float32)  # Transpose to (leads, samples)
     print(f"📊 Original signal shape: {sig.shape}")
     print(f"📈 Original sampling frequency: {rec.fs} Hz")
     print(f"🔌 Leads: {rec.sig_name}")
     
-    # 只保留前max_leads个导联，确保一致性
+    # Only keep first max_leads leads to ensure consistency
     if sig.shape[0] > max_leads:
         print(f"⚠️ Record has {sig.shape[0]} leads, only keeping first {max_leads}")
         sig = sig[:max_leads, :]
         print(f"📊 After truncation: {sig.shape}")
     
-    # 重采样到目标频率
+    # Resample to target frequency
     if rec.fs != tgt_fs:
         print(f"🔄 Resampling: {rec.fs} Hz -> {tgt_fs} Hz")
         n_new = int(sig.shape[1] * tgt_fs / rec.fs)
         sig = sg.resample(sig, n_new, axis=1)
         print(f"✅ After resampling: {sig.shape}")
     
-    # 应用带通滤波器 (0.5-40 Hz)
+    # Apply bandpass filter (0.5-40 Hz)
     if apply_filter:
         print("🔧 Applying bandpass filter (0.5-40 Hz)")
         nyquist = tgt_fs / 2
@@ -106,13 +106,13 @@ def windows_from_record(rec_base: str,
         b, a = sg.butter(4, [low, high], btype='band')
         sig = sg.filtfilt(b, a, sig, axis=1)
     
-    # 标准化：每导联Z-score
+    # Normalization: Z-score per lead
     print("📏 Applying Z-score normalization")
     sig = (sig - sig.mean(axis=1, keepdims=True)) / (sig.std(axis=1, keepdims=True) + 1e-6)
     
-    # 切窗
-    L = tgt_fs * win_sec  # 窗口长度（样本数）
-    step = tgt_fs * step_sec  # 步长（样本数）
+    # Windowing
+    L = tgt_fs * win_sec  # Window length (number of samples)
+    step = tgt_fs * step_sec  # Step size (number of samples)
     
     windows = []
     for s in range(0, sig.shape[1] - L + 1, step):
@@ -130,23 +130,23 @@ def process_all_records(data_dir: str,
                        step_sec: int = 10,
                        target_fs: int = 100) -> Dict[str, np.ndarray]:
     """
-    处理所有LTDB记录
+    Process all LTDB records
     
     Args:
-        data_dir: LTDB数据目录
-        output_dir: 输出目录
-        win_sec: 窗口长度（秒）
-        step_sec: 步长（秒）
-        target_fs: 目标采样频率
+        data_dir: LTDB data directory
+        output_dir: Output directory
+        win_sec: Window length (seconds)
+        step_sec: Step size (seconds)
+        target_fs: Target sampling frequency
     
     Returns:
-        processed_data: 包含所有处理数据的字典
+        processed_data: Dictionary containing all processed data
     """
     data_dir = Path(data_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # 获取所有记录文件
+    # Get all record files
     hea_files = list(data_dir.glob("*.hea"))
     record_names = [f.stem for f in hea_files]
     
@@ -181,7 +181,7 @@ def process_all_records(data_dir: str,
         print("❌ No records successfully processed")
         return {}
     
-    # 合并所有窗口
+    # Concatenate all windows
     print(f"\n🔗 Concatenating all windows...")
     combined_windows = np.concatenate(all_windows, axis=0)
     print(f"📊 Final data shape: {combined_windows.shape}")
@@ -189,7 +189,7 @@ def process_all_records(data_dir: str,
     print(f"🔌 Leads: {combined_windows.shape[1]}")
     print(f"⏱️ Each window: {combined_windows.shape[2]} samples ({combined_windows.shape[2]/target_fs:.1f} seconds)")
     
-    # 保存处理后的数据
+    # Save processed data
     processed_data = {
         'windows': combined_windows,
         'record_info': record_info,
@@ -204,14 +204,14 @@ def process_all_records(data_dir: str,
         }
     }
     
-    # 保存为numpy格式
+    # Save as numpy format
     np.save(output_dir / 'ltdb_processed.npy', combined_windows)
     
-    # 保存元数据
+    # Save metadata
     with open(output_dir / 'ltdb_metadata.json', 'w') as f:
         json.dump(processed_data['metadata'], f, indent=2)
     
-    # 保存记录信息
+    # Save record information
     with open(output_dir / 'ltdb_record_info.json', 'w') as f:
         json.dump(record_info, f, indent=2)
     
@@ -228,17 +228,17 @@ def split_dataset_by_records(processed_data: Dict[str, np.ndarray],
                            val_ratio: float = 0.15,
                            test_ratio: float = 0.15) -> Dict[str, np.ndarray]:
     """
-    按记录编号划分数据集，避免同一病人的数据泄露到不同集合
+    Split dataset by record number to prevent data leakage from same patient to different sets
     
     Args:
-        processed_data: 处理后的数据
-        output_dir: 输出目录
-        train_ratio: 训练集比例
-        val_ratio: 验证集比例
-        test_ratio: 测试集比例
+        processed_data: Processed data
+        output_dir: Output directory
+        train_ratio: Training set ratio
+        val_ratio: Validation set ratio
+        test_ratio: Test set ratio
     
     Returns:
-        split_data: 划分后的数据集
+        split_data: Split dataset
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -246,10 +246,10 @@ def split_dataset_by_records(processed_data: Dict[str, np.ndarray],
     record_info = processed_data['record_info']
     windows = processed_data['windows']
     
-    # 按记录排序，确保可重现性
+    # Sort records to ensure reproducibility
     record_names = sorted(record_info.keys())
     
-    # 计算每个集合应包含的记录数
+    # Calculate number of records for each set
     n_records = len(record_names)
     n_train = int(n_records * train_ratio)
     n_val = int(n_records * val_ratio)
@@ -261,7 +261,7 @@ def split_dataset_by_records(processed_data: Dict[str, np.ndarray],
     print(f"    Validation set: {n_val} records ({val_ratio*100:.1f}%)")
     print(f"    Test set: {n_test} records ({test_ratio*100:.1f}%)")
     
-    # 划分记录
+    # Split records
     train_records = record_names[:n_train]
     val_records = record_names[n_train:n_train+n_val]
     test_records = record_names[n_train+n_val:]
@@ -271,7 +271,7 @@ def split_dataset_by_records(processed_data: Dict[str, np.ndarray],
     print(f"    Validation set: {val_records}")
     print(f"    Test set: {test_records}")
     
-    # 根据记录信息找到对应的窗口索引
+    # Find corresponding window indices based on record information
     def get_window_indices(records):
         indices = []
         start_idx = 0
@@ -286,7 +286,7 @@ def split_dataset_by_records(processed_data: Dict[str, np.ndarray],
     val_indices = get_window_indices(val_records)
     test_indices = get_window_indices(test_records)
     
-    # 提取对应的窗口数据
+    # Extract corresponding window data
     train_windows = windows[train_indices]
     val_windows = windows[val_indices]
     test_windows = windows[test_indices]
@@ -296,7 +296,7 @@ def split_dataset_by_records(processed_data: Dict[str, np.ndarray],
     print(f"    Validation set: {val_windows.shape}")
     print(f"    Test set: {test_windows.shape}")
     
-    # 保存划分后的数据
+    # Save split data
     split_data = {
         'train': train_windows,
         'val': val_windows,
@@ -310,7 +310,7 @@ def split_dataset_by_records(processed_data: Dict[str, np.ndarray],
     np.save(output_dir / 'ltdb_val.npy', val_windows)
     np.save(output_dir / 'ltdb_test.npy', test_windows)
     
-    # 保存划分信息
+    # Save split information
     split_info = {
         'train_records': train_records,
         'val_records': val_records,
@@ -332,14 +332,14 @@ def split_dataset_by_records(processed_data: Dict[str, np.ndarray],
     return split_data
 
 if __name__ == "__main__":
-    # 配置参数
+    # Configuration parameters
     LTDB_DATA_DIR = "data/mit-bih-long-term-ecg-database-1.0.0"
     OUTPUT_DIR = "data/ltdb_processed"
     
-    # 处理参数
-    WINDOW_SEC = 10      # 10秒窗口
-    STEP_SEC = 10        # 10秒步长（不重叠）
-    TARGET_FS = 100      # 目标采样频率100 Hz
+    # Processing parameters
+    WINDOW_SEC = 10      # 10-second window
+    STEP_SEC = 10        # 10-second step (non-overlapping)
+    TARGET_FS = 100      # Target sampling frequency 100 Hz
     
     print("🚀 Starting MIT-BIH Long-Term ECG Database processing...")
     print(f"📁 Data directory: {LTDB_DATA_DIR}")
@@ -349,7 +349,7 @@ if __name__ == "__main__":
     print(f"    Step: {STEP_SEC} seconds")
     print(f"    Target sampling frequency: {TARGET_FS} Hz")
     
-    # 第一步：处理所有记录
+    # Step 1: Process all records
     processed_data = process_all_records(
         data_dir=LTDB_DATA_DIR,
         output_dir=OUTPUT_DIR,
@@ -359,7 +359,7 @@ if __name__ == "__main__":
     )
     
     if processed_data:
-        # 第二步：划分数据集
+        # Step 2: Split dataset
         split_data = split_dataset_by_records(
             processed_data=processed_data,
             output_dir=OUTPUT_DIR

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-导联适配器模块
-将2导联LTDB数据转换为12导联，以便复用现有的XResNet1d101模型
+Lead Adapter Module
+Converts 2-lead LTDB data to 12-lead data for reuse with existing XResNet1d101 models
 
-主要功能：
-1. 2导联 -> 12导联投影
-2. 保持现有模型权重不变
-3. 支持冻结/解冻策略
+Main Features:
+1. 2-lead -> 12-lead projection
+2. Maintains existing model weights
+3. Supports freezing/unfreezing strategies
 """
 
 """
@@ -55,29 +55,29 @@ class LeadAdapter(nn.Module):
         self.use_residual = use_residual
         self.use_batch_norm = use_batch_norm
         
-        # 主要的1x1卷积层
+        # Main 1x1 convolutional layer
         self.conv = nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=True)
         
-        # 批归一化层
+        # Batch normalization layer
         if use_batch_norm:
             self.bn = nn.BatchNorm1d(out_channels)
         else:
             self.bn = None
         
-        # 激活函数
+        # Activation function
         self.activation = nn.ReLU(inplace=True)
         
-        # 残差连接的投影层（如果输入输出导联数不同）
+        # Residual connection projection layer (if input and output lead numbers differ)
         if use_residual and in_channels != out_channels:
             self.residual_proj = nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
         else:
             self.residual_proj = None
         
-        # 初始化权重
+        # Initialize weights
         self._init_weights(init_method)
     
     def _init_weights(self, method: str):
-        """初始化权重"""
+        """Initialize weights"""
         if method == 'kaiming':
             nn.init.kaiming_normal_(self.conv.weight, mode='fan_out', nonlinearity='relu')
         elif method == 'xavier':
@@ -94,12 +94,12 @@ class LeadAdapter(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: 输入张量 (batch_size, 2, 1000)
+            x: Input tensor (batch_size, 2, 1000)
         
         Returns:
-            output: 输出张量 (batch_size, 12, 1000)
+            output: Output tensor (batch_size, 12, 1000)
         """
-        # 主路径
+        # Main path
         out = self.conv(x)
         
         if self.bn is not None:
@@ -107,7 +107,7 @@ class LeadAdapter(nn.Module):
         
         out = self.activation(out)
         
-        # 残差连接
+        # Residual connection
         if self.use_residual:
             if self.residual_proj is not None:
                 residual = self.residual_proj(x)
@@ -118,27 +118,27 @@ class LeadAdapter(nn.Module):
         return out
     
     def get_trainable_parameters(self):
-        """获取可训练参数"""
+        """Get trainable parameters"""
         return list(self.parameters())
     
     def freeze_parameters(self):
-        """冻结所有参数"""
+        """Freeze all parameters"""
         for param in self.parameters():
             param.requires_grad = False
     
     def unfreeze_parameters(self):
-        """解冻所有参数"""
+        """Unfreeze all parameters"""
         for param in self.parameters():
             param.requires_grad = True
 
 
 class LeadAdapterWithAttention(LeadAdapter):
     """
-    带注意力机制的导联适配器
+    Lead adapter with attention mechanism
     
-    增强功能：
-    - 添加通道注意力机制
-    - 更好的导联间关系建模
+    Enhanced features:
+    - Add channel attention mechanism
+    - Better modeling of inter-lead relationships
     """
     
     def __init__(self, 
@@ -147,7 +147,7 @@ class LeadAdapterWithAttention(LeadAdapter):
                  reduction: int = 4):
         super().__init__(in_channels, out_channels)
         
-        # 通道注意力机制
+        # Channel attention mechanism
         self.channel_attention = nn.Sequential(
             nn.AdaptiveAvgPool1d(1),
             nn.Conv1d(out_channels, out_channels // reduction, kernel_size=1, bias=False),
@@ -157,10 +157,10 @@ class LeadAdapterWithAttention(LeadAdapter):
         )
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # 基础转换
+        # Basic transformation
         out = super().forward(x)
         
-        # 应用通道注意力
+        # Apply channel attention
         attention_weights = self.channel_attention(out)
         out = out * attention_weights
         
@@ -172,55 +172,55 @@ def create_lead_adapter(adapter_type: str = 'basic',
                        out_channels: int = 12,
                        **kwargs) -> LeadAdapter:
     """
-    工厂函数：创建导联适配器
+    Factory function: Create lead adapter
     
     Args:
-        adapter_type: 适配器类型 ('basic', 'attention')
-        in_channels: 输入导联数
-        out_channels: 输出导联数
-        **kwargs: 其他参数
+        adapter_type: Adapter type ('basic', 'attention')
+        in_channels: Number of input leads
+        out_channels: Number of output leads
+        **kwargs: Other parameters
     
     Returns:
-        LeadAdapter实例
+        LeadAdapter instance
     """
     if adapter_type == 'basic':
         return LeadAdapter(in_channels, out_channels, **kwargs)
     elif adapter_type == 'attention':
         return LeadAdapterWithAttention(in_channels, out_channels, **kwargs)
     else:
-        raise ValueError(f"不支持的适配器类型: {adapter_type}")
+        raise ValueError(f"Unsupported adapter type: {adapter_type}")
 
 
 def test_lead_adapter():
-    """测试导联适配器"""
-    print("🧪 测试导联适配器...")
+    """Test lead adapter"""
+    print("🧪 Testing lead adapter...")
     
-    # 创建适配器
+    # Create adapter
     adapter = LeadAdapter(in_channels=2, out_channels=12)
     
-    # 测试输入
+    # Test input
     batch_size = 4
     input_tensor = torch.randn(batch_size, 2, 1000)
     
-    print(f"📥 输入形状: {input_tensor.shape}")
+    print(f"📥 Input shape: {input_tensor.shape}")
     
-    # 前向传播
+    # Forward propagation
     with torch.no_grad():
         output = adapter(input_tensor)
     
-    print(f"📤 输出形状: {output.shape}")
-    print(f"✅ 导联适配器测试通过！")
+    print(f"📤 Output shape: {output.shape}")
+    print(f"✅ Lead adapter test passed!")
     
-    # 测试参数数量
+    # Test parameter count
     total_params = sum(p.numel() for p in adapter.parameters())
     trainable_params = sum(p.numel() for p in adapter.parameters() if p.requires_grad)
     
-    print(f"📊 总参数数: {total_params:,}")
-    print(f"📊 可训练参数数: {trainable_params:,}")
+    print(f"📊 Total parameters: {total_params:,}")
+    print(f"📊 Trainable parameters: {trainable_params:,}")
     
     return adapter
 
 
 if __name__ == "__main__":
-    # 运行测试
+    # Run test
     adapter = test_lead_adapter() 

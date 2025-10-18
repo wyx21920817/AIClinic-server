@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-迁移学习模型组合器
-将导联适配器与现有的XResNet1d101模型组合，实现2导联到12导联的迁移学习
+Transfer Learning Model Combiner
+Combines lead adapter with existing XResNet1d101 model to implement 2-lead to 12-lead transfer learning
 
-主要功能：
-1. 加载预训练的XResNet1d101模型
-2. 添加导联适配器
-3. 支持不同的训练策略（冻结/解冻）
-4. 模型保存和加载
+Main Functions:
+1. Load pre-trained XResNet1d101 model
+2. Add lead adapter
+3. Support different training strategies (freeze/unfreeze)
+4. Model saving and loading
 """
 
 import os
@@ -18,17 +18,17 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import json
 
-# 导入必要的模块
+# Import necessary modules
 from .lead_adapter import LeadAdapter, create_lead_adapter
 from .models.xresnet1d import xresnet1d101
 
 
 class TransferLearningModel(nn.Module):
     """
-    迁移学习模型：导联适配器 + XResNet1d101
+    Transfer learning model: Lead adapter + XResNet1d101
     
-    架构：
-    LTDB数据 (2导联) -> 导联适配器 -> XResNet1d101 -> 输出
+    Architecture:
+    LTDB data (2 leads) -> Lead adapter -> XResNet1d101 -> Output
     """
     
     def __init__(self, 
@@ -39,11 +39,11 @@ class TransferLearningModel(nn.Module):
                  freeze_stages: Optional[List[int]] = None):
         """
         Args:
-            backbone_path: 预训练模型路径
-            num_classes: 分类类别数
-            adapter_type: 适配器类型 ('basic', 'attention')
-            freeze_backbone: 是否冻结主干网络
-            freeze_stages: 冻结的stage列表 (0-3)
+            backbone_path: Pre-trained model path
+            num_classes: Number of classification classes
+            adapter_type: Adapter type ('basic', 'attention')
+            freeze_backbone: Whether to freeze backbone network
+            freeze_stages: List of frozen stages (0-3)
         """
         super().__init__()
         
@@ -53,23 +53,23 @@ class TransferLearningModel(nn.Module):
         self.freeze_backbone = freeze_backbone
         self.freeze_stages = freeze_stages or []
         
-        # 创建导联适配器
+        # Create lead adapter
         self.lead_adapter = create_lead_adapter(
             adapter_type=adapter_type,
             in_channels=2,
             out_channels=12
         )
         
-        # 创建主干网络 (XResNet1d101)
+        # Create backbone network (XResNet1d101)
         self.backbone = xresnet1d101(
-            input_channels=12,  # 适配器输出12导联
+            input_channels=12,  # Adapter outputs 12 leads
             num_classes=num_classes
         )
         
-        # 加载预训练权重
+        # Load pre-trained weights
         self._load_pretrained_weights()
         
-        # 应用冻结策略
+        # Apply freezing strategy
         self._apply_freezing_strategy()
         
         print(f"✅ Transfer learning model created successfully!")
@@ -399,5 +399,5 @@ def test_transfer_model():
 
 
 if __name__ == "__main__":
-    # 运行测试
+    # Run test
     model = test_transfer_model() 

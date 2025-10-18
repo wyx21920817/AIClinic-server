@@ -36,15 +36,15 @@ except ImportError:
         # Fallback: create default load_model and preprocess_signal functions
         def load_model_128(weights_path, n_in, n_out, device='cpu'):
             print("Warning: Using default load_model_128 function")
-            # 尝试直接导入xresnet1d模型
+            # Try to import the xresnet1d model directly
             try:
                 from code.models.xresnet1d import xresnet1d101
                 
-                # 1. 载入 checkpoint
+                # 1. Load checkpoint
                 ckpt = torch.load(weights_path, map_location=device, weights_only=False)
                 state = ckpt.get('model', ckpt)
 
-                # 2. 从 state 推断分类头 hidden_size
+                # 2. Infer the hidden_size of the classification head from the state
                 hidden_size = None
                 for k,v in state.items():
                     if v.ndim==2 and v.shape[0]==n_out:
@@ -55,14 +55,14 @@ except ImportError:
                     print(f"Failed to infer hidden_size (n_out={n_out})")
                     return None
 
-                # 3. 重建模型
+                # 3. Rebuild the model
                 model = xresnet1d101(
                     input_channels=n_in,
                     num_classes=n_out,
                     lin_ftrs_head=[hidden_size]
                 ).to(device)
 
-                # 4. 严格加载权重
+                # 4. Strictly load the weights
                 try:
                     model.load_state_dict(state, strict=True)
                     print("Finetuned model weights loaded successfully")
@@ -75,9 +75,9 @@ except ImportError:
                 
             except ImportError as e:
                 print(f"Cannot import xresnet1d101 model: {e}")
-                # 尝试其他导入方式
+                # Try other import methods
                 try:
-                    # 方法1：直接添加路径
+                    # Method 1: Directly add path
                     import sys
                     import os
                     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -87,7 +87,7 @@ except ImportError:
                     from models.xresnet1d import xresnet1d101
                     print("Successfully imported xresnet1d101 using alternative path")
                     
-                    # 继续加载模型...
+                    # Continue loading model...
                     ckpt = torch.load(weights_path, map_location=device, weights_only=False)
                     state = ckpt.get('model', ckpt)
 

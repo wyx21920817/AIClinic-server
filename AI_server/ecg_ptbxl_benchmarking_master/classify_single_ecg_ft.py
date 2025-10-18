@@ -104,7 +104,7 @@ def load_data_and_scaler(base_path=BASE_PATH_FT):
 def build_class_map(mlb):
     return {i:cls for i,cls in enumerate(mlb.classes_)}
 
-# -------------------- 主流程 --------------------
+# -------------------- Main Process --------------------
 if __name__=='__main__':
     set_seed()
     if len(sys.argv)!=2:
@@ -112,15 +112,15 @@ if __name__=='__main__':
         sys.exit(1)
 
     rec_base = sys.argv[1]
-    # 1) 加载 scaler 和 mlb（微调版，5 类）
+    # 1) Load scaler and mlb (fine-tuned version, 5 classes)
     scaler, mlb = load_data_and_scaler()
     idx2name    = build_class_map(mlb)
-    n_out       = len(mlb.classes_)      # 应为 5
+    n_out       = len(mlb.classes_)      # Should be 5
 
-    # 2) 载入微调模型
+    # 2) Load fine-tuned model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model  = load_model(WEIGHTS_FILE_FT, n_in=12, n_out=n_out, device=device)
     if model is None: sys.exit(1)
 
-    # 3) 推理并打印 top-5
+    # 3) Inference and print top-5
     predict_ecg(rec_base, model, device, idx2name, scaler, top_k=5)

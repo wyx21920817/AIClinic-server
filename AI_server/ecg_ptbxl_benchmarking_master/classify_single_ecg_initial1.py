@@ -46,7 +46,7 @@ def preprocess_signal(sig, scaler=None):
     if scaler is not None:
         scaled_sig = scaler.transform(sig.flatten()[:, np.newaxis]).reshape(sig.shape)
     else:
-        # 如果没有提供 scaler 参数，初始化一个新的 StandardScaler
+        # If no scaler parameter is provided, initialize a new StandardScaler
         scaler = StandardScaler()
         scaler.fit(sig.flatten()[:, np.newaxis])
         scaled_sig = scaler.transform(sig.flatten()[:, np.newaxis]).reshape(sig.shape)
@@ -75,7 +75,7 @@ def load_data_and_scaler():
     """
     Load data utilities: StandardScaler and MultiLabelBinarizer for preprocessing
     """
-    # 将路径指向正确的位置
+    # Point the path to the correct location
     scaler_path = os.path.join('output', 'exp0', 'data', 'standard_scaler.pkl')
     mlb_path = os.path.join('output', 'exp0', 'data', 'mlb.pkl')
     print(f'scaler_path:',scaler_path)

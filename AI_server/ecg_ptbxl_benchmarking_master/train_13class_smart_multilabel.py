@@ -20,7 +20,7 @@ import pickle
 import warnings
 warnings.filterwarnings('ignore')
 
-# CUDA GPU优化设置
+
 # CUDA GPU optimization settings
 def setup_cuda_optimization():
     """Configure CUDA GPU optimization parameters"""

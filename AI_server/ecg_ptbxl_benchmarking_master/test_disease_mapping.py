@@ -26,8 +26,8 @@ def test_disease_mapping():
     
     print("\n" + "=" * 50)
     
-    # 测试用例1：正常的疾病映射
-    print("测试用例1: 正常疾病映射")
+    # Test case 1: Normal disease mapping
+    print("Test case 1: Normal disease mapping")
     test_predictions = {
         'NORM': 0.8,
         'ILBBB': 0.6,
@@ -36,21 +36,21 @@ def test_disease_mapping():
         'PAC': 0.2
     }
     
-    print("原始预测结果:")
+    print("Original prediction results:")
     for disease, prob in test_predictions.items():
         print(f"  {disease}: {prob:.3f}")
     
     mapped_result = map_diseases_to_categories(test_predictions, mapping)
     
-    print("\n映射后的结果:")
+    print("\nMapped results:")
     for category, prob in mapped_result.items():
         if prob > 0:
             print(f"  {category}: {prob:.3f}")
     
     print("\n" + "=" * 50)
     
-    # 测试用例2：包含未知疾病的映射
-    print("测试用例2: 包含未知疾病的映射")
+    # Test case 2: Mapping with unknown diseases
+    print("Test case 2: Mapping with unknown diseases")
     test_predictions2 = {
         'NORM': 0.7,
         'UNKNOWN_DISEASE': 0.5,
@@ -59,21 +59,21 @@ def test_disease_mapping():
         'STACH': 0.2
     }
     
-    print("原始预测结果:")
+    print("Original prediction results:")
     for disease, prob in test_predictions2.items():
         print(f"  {disease}: {prob:.3f}")
     
     mapped_result2 = map_diseases_to_categories(test_predictions2, mapping)
     
-    print("\n映射后的结果:")
+    print("\nMapped results:")
     for category, prob in mapped_result2.items():
         if prob > 0:
             print(f"  {category}: {prob:.3f}")
     
     print("\n" + "=" * 50)
     
-    # 测试用例3：LBBB 合并测试
-    print("测试用例3: LBBB 合并测试")
+    # Test case 3: LBBB merge test
+    print("Test case 3: LBBB merge test")
     test_predictions3 = {
         'ILBBB': 0.6,
         'CLBBB': 0.4,
@@ -81,21 +81,21 @@ def test_disease_mapping():
         'NORM': 0.2
     }
     
-    print("原始预测结果:")
+    print("Original prediction results:")
     for disease, prob in test_predictions3.items():
         print(f"  {disease}: {prob:.3f}")
     
     mapped_result3 = map_diseases_to_categories(test_predictions3, mapping)
     
-    print("\n映射后的结果 (LBBB 应该合并):")
+    print("\nMapped results (LBBB should be merged):")
     for category, prob in mapped_result3.items():
         if prob > 0:
             print(f"  {category}: {prob:.3f}")
     
     print("\n" + "=" * 50)
     
-    # 验证目标类别
-    print("目标疾病类别列表:")
+    # Verify target categories
+    print("Target disease category list:")
     target_categories = [
         'NORM', '1dAVB', '2dAVB', '3dAVB', 'AFIB', 'AFLT', 
         'LBBB', 'RBBB', 'STACH', 'PAC', 'PVC'
@@ -104,36 +104,36 @@ def test_disease_mapping():
     for i, category in enumerate(target_categories, 1):
         print(f"  {i:2d}. {category}")
     
-    print(f"\n总计: {len(target_categories)} 种目标疾病类别")
+    print(f"\nTotal: {len(target_categories)} target disease categories")
 
 def test_edge_cases():
-    """测试边界情况"""
-    print("\n🧪 测试边界情况")
+    """Test edge cases"""
+    print("\n🧪 Testing edge cases")
     print("=" * 50)
     
     mapping = get_disease_mapping()
     
-    # 测试空预测结果
-    print("测试空预测结果:")
+    # Test empty prediction results
+    print("Testing empty prediction results:")
     empty_predictions = {}
     result = map_diseases_to_categories(empty_predictions, mapping)
-    print(f"空预测结果映射后: {result}")
+    print(f"Empty prediction results after mapping: {result}")
     
-    # 测试所有概率为0的情况
-    print("\n测试所有概率为0的情况:")
+    # Test all probabilities are 0
+    print("\nTesting all probabilities are 0:")
     zero_predictions = {'NORM': 0.0, 'LBBB': 0.0}
     result = map_diseases_to_categories(zero_predictions, mapping)
-    print(f"零概率预测结果映射后: {result}")
+    print(f"Zero probability prediction results after mapping: {result}")
     
-    # 测试概率累加
-    print("\n测试概率累加:")
+    # Test probability accumulation
+    print("\nTesting probability accumulation:")
     cumulative_predictions = {
         'ILBBB': 0.3,
         'CLBBB': 0.4,
         'LBBB': 0.2
     }
     result = map_diseases_to_categories(cumulative_predictions, mapping)
-    print(f"LBBB 相关预测结果:")
+    print(f"LBBB related prediction results:")
     for category, prob in result.items():
         if prob > 0:
             print(f"  {category}: {prob:.3f}")
@@ -142,8 +142,8 @@ if __name__ == "__main__":
     try:
         test_disease_mapping()
         test_edge_cases()
-        print("\n✅ 所有测试完成！")
+        print("\n✅ All tests completed!")
     except Exception as e:
-        print(f"\n❌ 测试失败: {e}")
+        print(f"\n❌ Test failed: {e}")
         import traceback
         traceback.print_exc()

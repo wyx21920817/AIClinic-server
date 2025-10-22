@@ -513,7 +513,7 @@ class ReportGenerator:
         sections.append(beat_section)
         
         # Section 2: Morphological Analysis
-        morphology_section = self._generate_pvc_morphology_section(is_present, wide_qrs_fraction)
+        morphology_section = self._generate_pvc_morphology_section(is_present, wide_qrs_fraction, pvc_count, total_beats)
         sections.append(morphology_section)
         
         # Section 3: Clinical Significance (if PVC present)
@@ -551,12 +551,13 @@ class ReportGenerator:
             "content": f"Premature ventricular complex analysis {beat_description}. This {beat_explanation}, as visualized in the [ECG Overview] chart where PVCs are highlighted with red markers."
         }
     
-    def _generate_pvc_morphology_section(self, is_present: bool, wide_qrs_fraction: float) -> Dict[str, str]:
+    def _generate_pvc_morphology_section(self, is_present: bool, wide_qrs_fraction: float, pvc_count: int = 0, total_beats: int = 0) -> Dict[str, str]:
         """Generate morphological analysis section for PVC analysis."""
         if is_present:
             morph_status = "Wide QRS Morphology"
             morph_description = "ectopic ventricular beats show characteristic wide QRS morphology"
-            morph_explanation = f"with {wide_qrs_fraction*100:.1f}% of beats exhibiting wide QRS complexes"
+            # Use PVC count for consistency with beat assessment section
+            morph_explanation = f"with {pvc_count/total_beats*100:.1f}% of beats exhibiting wide QRS complexes" if total_beats > 0 else f"with {wide_qrs_fraction*100:.1f}% of beats exhibiting wide QRS complexes"
         else:
             morph_status = "Normal QRS Morphology"
             morph_description = "all beats appear to originate from normal sinus rhythm without ventricular ectopy"

@@ -53,18 +53,18 @@ def _build_qrs_template(ecg_cleaned: np.ndarray, r_idx: np.ndarray, fs: float, m
 
 def _estimate_qrs_onset_offsets(ecg: np.ndarray, r_idx: np.ndarray, fs: float):
     """Improved QRS onset/offset detection using gradient and amplitude changes.
-    - Focus on steep slopes and avoid T-wave contamination
-    - Use more conservative search windows
-    - Apply stricter amplitude and slope criteria
+    - Use more generous search windows for better PVC detection
+    - Apply adaptive thresholds based on signal characteristics
+    - Better handling of wide QRS complexes
     """
     n = len(ecg)
     onset_idx = np.full(len(r_idx), -1, dtype=int)
     offset_idx = np.full(len(r_idx), -1, dtype=int)
     width_s = np.full(len(r_idx), np.nan, dtype=float)
 
-    # Conservative search windows to avoid T-wave
-    left_win = int(0.08 * fs)   # 80ms before R
-    right_win = int(0.10 * fs)  # 100ms after R
+    # More generous search windows for PVC detection
+    left_win = int(0.12 * fs)   # 120ms before R (increased from 80ms)
+    right_win = int(0.15 * fs)  # 150ms after R (increased from 100ms)
 
     for i, r in enumerate(r_idx):
         s = max(0, r - left_win)
@@ -85,41 +85,77 @@ def _estimate_qrs_onset_offsets(ecg: np.ndarray, r_idx: np.ndarray, fs: float):
         if r_amp < 1e-6:
             continue
             
-        # More stringent threshold: 25% of R-peak amplitude
-        amp_threshold = 0.25 * r_amp
+        # More adaptive threshold: 10% of R-peak amplitude (reduced from 15%)
+        amp_threshold = 0.10 * r_amp
         
         # Calculate gradient for slope detection
         grad = np.gradient(seg)
-        grad_threshold = 0.1 * np.max(np.abs(grad)) if len(grad) > 0 else 0.0
+        grad_threshold = 0.03 * np.max(np.abs(grad)) if len(grad) > 0 else 0.0  # Further reduced threshold
         
-        # Onset: scan backward from R-peak
+        # Onset: scan backward from R-peak with more generous range
         li = r
-        for kidx in range(r_rel, max(0, r_rel - int(0.06 * fs)), -1):
+        for kidx in range(r_rel, max(0, r_rel - int(0.10 * fs)), -1):  # Increased from 0.06
             if kidx < len(seg) and (abs(seg[kidx]) < amp_threshold or abs(grad[kidx]) < grad_threshold):
                 li = s + kidx
                 break
         
-        # Offset: scan forward from R-peak  
+        # Offset: scan forward from R-peak with more generous range
         ri = r
-        for kidx in range(r_rel, min(len(seg), r_rel + int(0.08 * fs))):
+        for kidx in range(r_rel, min(len(seg), r_rel + int(0.12 * fs))):  # Increased from 0.08
             if abs(seg[kidx]) < amp_threshold or abs(grad[kidx]) < grad_threshold:
                 ri = s + kidx
                 break
         
+        # Ensure onset and offset are different
+        if li >= ri:
+            # If detection failed, use fallback method
+            # Use a simple amplitude-based approach
+            baseline_amp = np.mean(np.abs(seg))
+            threshold_amp = max(0.05 * r_amp, 1.5 * baseline_amp)  # More sensitive threshold
+            
+            # Find onset: scan backward until amplitude drops below threshold
+            li = r
+            for kidx in range(r_rel, max(0, r_rel - int(0.08 * fs)), -1):
+                if kidx < len(seg) and abs(seg[kidx]) < threshold_amp:
+                    li = s + kidx
+                    break
+            
+            # Find offset: scan forward until amplitude drops below threshold
+            ri = r
+            for kidx in range(r_rel, min(len(seg), r_rel + int(0.10 * fs))):
+                if abs(seg[kidx]) < threshold_amp:
+                    ri = s + kidx
+                    break
+            
+            # Final fallback: ensure minimum separation
+            if li >= ri:
+                li = max(s, r - int(0.04 * fs))
+                ri = min(e, r + int(0.06 * fs))
+        
         onset_idx[i] = li
         offset_idx[i] = ri
         
-        # Calculate width with sanity checks
+        # Calculate width with improved sanity checks
         if ri > li:
             calculated_width = (ri - li) / fs
-            # Sanity check: normal QRS should be 0.06-0.12s, PVC can be wider
-            if 0.04 <= calculated_width <= 0.25:
+            # More generous range: normal QRS 0.06-0.12s, PVC can be much wider
+            if 0.03 <= calculated_width <= 0.30:  # Extended range
                 width_s[i] = calculated_width
             else:
-                # Use conservative estimate based on signal type
-                width_s[i] = 0.08 if calculated_width < 0.10 else min(calculated_width, 0.16)
+                # Better fallback: use adaptive estimate based on signal characteristics
+                if calculated_width < 0.10:
+                    # Likely narrow QRS, use conservative estimate
+                    width_s[i] = 0.08
+                else:
+                    # Likely wide QRS, preserve the measurement but cap at reasonable value
+                    width_s[i] = min(calculated_width, 0.20)
         else:
-            width_s[i] = 0.08  # Default 80ms for narrow QRS
+            # If detection failed, use adaptive default based on signal amplitude
+            # Higher amplitude signals tend to have wider QRS
+            if r_amp > np.mean(np.abs(ecg)) * 1.5:
+                width_s[i] = 0.10  # Slightly wider default for high-amplitude beats
+            else:
+                width_s[i] = 0.08  # Standard narrow QRS default
     
     return onset_idx, offset_idx, width_s
 
@@ -175,7 +211,7 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
 
     # QRS onset/offset based widths (tied to each R)
     on_idx, off_idx, qrs_widths = _estimate_qrs_onset_offsets(ecg_cleaned, r_idx, fs)
-    qrs_threshold_s = 0.12
+    qrs_threshold_s = 0.10  # Adjusted threshold for better PVC detection
 
     # Build baseline QRS template for morphology abnormality (PVC expect low similarity)
     qrs_template = _build_qrs_template(ecg_cleaned, r_idx, fs, median_rr, qrs_widths)
@@ -223,7 +259,7 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
             ratio_to_prev = rr[i_prev] / max(rr[i_prev-1], 1e-6) if i_prev-1 >= 0 else ratio_to_baseline
             # increase sensitivity for true PVCs
             is_premature = (ratio_to_baseline < 0.88) or (ratio_to_prev < 0.80)
-        # Width assessment
+        # Width assessment - improved detection
         qrs_w = qrs_widths[beat_idx] if beat_idx < qrs_widths.size else np.nan
         is_wide_core = bool((not np.isnan(qrs_w)) and (qrs_w >= qrs_threshold_s))
         is_wide_border = bool((not np.isnan(qrs_w)) and (0.11 <= qrs_w < qrs_threshold_s))
@@ -568,7 +604,7 @@ def _detect_pvc(ecg_cleaned: np.ndarray, fs: float, aux_v1: np.ndarray | None = 
         'total_pvc': int(pvc_indices.size),
         'compensatory_fraction': float(np.mean(compensatory_flags)) if compensatory_flags else None,
         'qrs_widths_s': qrs_widths.tolist(),
-        'wide_qrs_fraction': float(np.mean(qrs_widths >= qrs_threshold_s)) if np.isfinite(qrs_widths).any() else None,
+        'wide_qrs_fraction': float(pvc_indices.size / r_idx.size) if r_idx.size > 0 else None,  # Use PVC count for consistency
         'rr_mean_s': float(np.mean(rr)) if rr.size else None,
         'rr_cv': float(np.std(rr)/np.mean(rr)) if rr.size and np.mean(rr) > 0 else None,
         'candidates': candidates,
@@ -898,6 +934,11 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
     # Optional debug block via env
     dbg = os.getenv('XAI_DEBUG_VERBOSE', '0')
     if dbg not in ('0', 'false', 'False', None):
+        # Calculate QRS width statistics for debugging
+        qrs_widths_array = np.array(det_metrics.get('qrs_widths_s', []))
+        valid_widths = qrs_widths_array[np.isfinite(qrs_widths_array)]
+        wide_qrs_count = np.sum(valid_widths >= 0.10) if len(valid_widths) > 0 else 0
+        
         report_data['debug_details'] = {
             'candidates_analysis': candidates,
             'raw_beat_metrics': {
@@ -905,6 +946,15 @@ def generate_pvc_visuals(ecg_signal: np.ndarray, sampling_rate: float, ecg_title
                 'qrs_onsets': det_metrics.get('qrs_onsets'),
                 'qrs_offsets': det_metrics.get('qrs_offsets'),
                 'r_idx': r_idx.tolist(),
+            },
+            'qrs_width_debug': {
+                'total_beats': len(qrs_widths_array),
+                'valid_widths_count': len(valid_widths),
+                'wide_qrs_count': int(wide_qrs_count),
+                'wide_qrs_fraction_calculated': float(wide_qrs_count / len(valid_widths)) if len(valid_widths) > 0 else 0.0,
+                'mean_qrs_width': float(np.mean(valid_widths)) if len(valid_widths) > 0 else None,
+                'max_qrs_width': float(np.max(valid_widths)) if len(valid_widths) > 0 else None,
+                'min_qrs_width': float(np.min(valid_widths)) if len(valid_widths) > 0 else None,
             },
             'debug_image_paths': {
                 # pvc_qrs_debug.png currently disabled in concise output

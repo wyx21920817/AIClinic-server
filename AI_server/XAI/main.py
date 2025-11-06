@@ -487,26 +487,4 @@ def run_xai_tasks(
     return {"results": results}
 
 
-def main(config_path):
-    """
-    Backward-compatible entrypoint: read JSON config, then run tasks.
-    """
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = json.load(f)
-
-    default_out = os.path.join(os.path.dirname(__file__), "data", "ecg_analysis_results")
-    output_dir = config.get("output_dir", default_out)
-    tasks = config.get("tasks", [])
-    web_accessible = config.get("web_accessible", None)  # None means use default from config
-
-    # backward-compatible JSON entrypoint uses simplified API
-    out = run_xai_tasks(tasks, output_dir=output_dir, return_reports=False, verbose=True, web_accessible=web_accessible)
-    # print a minimal summary to stdout for CLI usage
-    print(json.dumps({"results": out.get("results", [])}, ensure_ascii=False))
     
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) != 2:
-        print("Usage: python main.py <path_to_config.json>")
-    else:
-        main(sys.argv[1])

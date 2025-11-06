@@ -51,8 +51,8 @@
     main.py                  # XAI task runner (called by app.py)
     ecg_utils.py             # ECG data loading utilities
     clinical_reports.py      # ReportGenerator (centralized reports)
+    test_comprehensive.py    # Unit tests for XAI model
     xai/explanations/*.py    # Module visuals + metrics only
-    tests/                   # Unit tests
     static/                  # Generated images (served at /static)
   ```
 

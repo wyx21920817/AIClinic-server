@@ -1,36 +1,36 @@
-  ## Overview
+  # Overview
 
   XAI (explainable AI) module provides comprehensive visual explanations and clinical interpretations for ECG abnormality analysis. It bridges the gap between AI model predictions and clinical understanding by generating detailed visualizations, statistical metrics, and structured reports that help explain why certain abnormalities were detected.
 
   ## Features
 
-  ### Core Capabilities
+  ## Core Capabilities
   - **Multi-abnormality Analysis**: Supports 12 different ECG abnormalities with specialized analysis modules
   - **Clinical Visualizations**: Generates publication-quality plots showing key diagnostic features
   - **Structured Reports**: Produces standardized JSON reports with summary, statistics, and validation
   - **Automated Metrics**: Calculates clinically relevant parameters (heart rate, intervals, morphology)
   - **Validation Logic**: Built-in validators to ensure diagnostic accuracy and consistency
 
-  ### Supported Abnormalities
+  ## Supported Abnormalities
   - **Arrhythmias**: AF (Atrial Fibrillation), AFLT (Atrial Flutter), PAC (Premature Atrial Contraction), PVC (Premature Ventricular Contraction)
   - **Conduction Blocks**: 1dAVB (First-degree AV Block), 2dAVB (Second-degree AV Block), 3dAVB (Third-degree AV Block), LBBB (Left Bundle Branch Block), RBBB (Right Bundle Branch Block)
   - **Rate Abnormalities**: STACH (Sinus Tachycardia), SBRAD (Sinus Bradycardia)
   - **Normal**: NORM (Normal ECG) baseline analysis
 
-  ### Visualization Features
+  ## Visualization Features
   - Rhythm analysis with RR interval histograms and trend plots
   - Morphology analysis showing QRS complexes, P-waves, and interval measurements
   - Spectral analysis for atrial flutter detection
   - Multi-lead comparisons for bundle branch blocks
   - Color-coded diagnostic indicators (tachycardia/bradycardia/normal ranges)
 
-   # XAI ECG Visualization and Explanation
+   ## XAI ECG Visualization and Explanation
 
   Clinically oriented ECG visualizations with structured JSON reports. Supports WFDB and DICOM ECG.
   All report content is centralized via `clinical_reports.ReportGenerator` for consistent outputs across modules.
 
 
-  ### Report Structure
+  ## Report Structure
   Each analysis generates:
   - **Summary**: Clinical interpretation text and abnormality presence indicators
   - **Statistics**: Quantitative metrics (heart rates, intervals, ratios, frequencies)
